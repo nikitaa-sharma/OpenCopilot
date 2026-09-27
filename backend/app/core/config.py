@@ -56,15 +56,6 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             origins = list(v)
 
-        # Auto-include Vercel domain if deployed on Vercel
-        import os
-        vercel_url = os.environ.get("VERCEL_URL")
-        if vercel_url:
-            origins.append(f"https://{vercel_url}")
-        vercel_prod_url = os.environ.get("VERCEL_PROJECT_PRODUCTION_URL")
-        if vercel_prod_url:
-            origins.append(f"https://{vercel_prod_url}")
-
         seen = set()
         deduped: List[str] = []
         for o in origins:
@@ -76,7 +67,6 @@ class Settings(BaseSettings):
 
     # Database Configuration (PostgreSQL)
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/opencopilot"
-    SKIP_DB_INIT: bool = False
 
     # GitHub API Configuration
     GITHUB_TOKEN: str = ""

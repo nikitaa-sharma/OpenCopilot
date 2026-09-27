@@ -16,13 +16,10 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan context manager: handles startup and shutdown tasks.
     """
-    if getattr(settings, "SKIP_DB_INIT", False):
-        logger.info("Database auto-initialization skipped via SKIP_DB_INIT=True.")
-    else:
-        try:
-            await init_db()
-        except Exception as exc:
-            logger.warning("Database auto-initialization skipped or deferred: %s", exc)
+    try:
+        await init_db()
+    except Exception as exc:
+        logger.warning("Database auto-initialization skipped or deferred: %s", exc)
     yield
 
 

@@ -1,5 +1,5 @@
 """
-Unit tests for Vercel deployment providers (Phase 16).
+Unit tests for optional LLM and embedding providers.
 Tests OpenAICompatibleProvider, OpenAIEmbeddingProvider, and factory dispatching.
 """
 

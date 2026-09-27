@@ -1,648 +1,566 @@
 # OpenSource Copilot – AI Contribution Assistant
 
-OpenSource Copilot is a web application designed to help developers understand, navigate, and contribute to open-source GitHub repositories.
+OpenSource Copilot is an intelligent, local developer assistant designed to help developers understand, navigate, and contribute to open-source GitHub repositories.
 
 ---
 
-## Project Purpose
-Finding where and how to start contributing to an open-source project can be daunting. Codebases are often large, documentation can be dense, and finding issues matched to one's skills is challenging. OpenSource Copilot bridges this gap by:
-- Analyzing GitHub repositories on-demand.
-- Summarizing technical architectures, frameworks, and core concepts.
-- Classifying open GitHub issues and matching them to developer skill sets.
-- Synthesizing tailored, step-by-step contribution guides for specific issues.
-- Providing an interactive RAG-powered chat assistant capable of answering questions directly referencing repository code and documentation.
+## 1. Overview
+
+Getting started with an open-source project is often overwhelming. OpenSource Copilot provides a unified local interface where developers enter any public GitHub repository URL, and the system autonomously analyzes it to:
+- Explore project structure, languages, activity, and core concepts.
+- Ingest repository code and documentation into a vector database with pgvector.
+- Inspect and classify open GitHub issues according to technical difficulty.
+- Match issues against the developer's personal skill profile with transparent scoring and skill gap analysis.
+- Provide interactive, RAG-grounded codebase chat that cites verified source files.
+- Synthesize actionable, step-by-step contribution guides for targeted issues with pre-flight pull request checklists.
+
+OpenSource Copilot runs **completely locally** using Docker, PostgreSQL with pgvector, Ollama (`llama3.2:3b`), and Sentence Transformers (`BAAI/bge-small-en-v1.5`).
 
 ---
 
-## Current Status & Roadmap
+## 2. Problem Statement
 
-| Feature / Area | Status | Description |
-| :--- | :--- | :--- |
-| **Monorepo Foundation** | ✅ **Implemented** | Clean modular separation between Next.js frontend and FastAPI backend. |
-| **Health Check API** | ✅ **Implemented** | `GET /api/health` returning service status. |
-| **Database Foundation** | ✅ **Implemented** | PostgreSQL configuration, connection layer, and entity models planned. |
-| **Replaceable AI Interface** | ✅ **Implemented** | Abstract `LLMProvider` interface ready for local (Ollama) or hosted APIs. |
-| **Frontend UI Shell** | ✅ **Implemented** | App Router, responsive hero, repository input, and modular feature placeholders. |
-| **TypeScript & Domain Types** | ✅ **Implemented** | Shared domain contracts across frontend and backend schemas. |
-| **GitHub REST API Integration** | ✅ **Implemented (Phase 3)** | Live repository metadata, languages, README, and open issues via GitHub REST API. Async `httpx` service, URL parser, PR filtering, error handling, optional token auth. |
-| **Repository Tree & Code Ingestion** | ✅ **Implemented (Phase 4)** | Recursive Git tree retrieval, file classification, language detection, on-demand file content with base64 decoding, safety limits, batch ingestion endpoint. Read-only — no code execution. |
-| **AI Architecture Analysis & LLM Provider** | ✅ **Implemented (Phase 5)** | Replaceable LLM abstraction with local Ollama provider. Deterministic repository context builder (prioritizing README, configs, entry points, source files), Pydantic structured validation, interactive architecture dashboard. Zero paid API keys required. |
-| **AI Issue Analysis & Recommendations**| ✅ **Implemented (Phase 6)** | Grounded AI analysis for real GitHub issues. Deterministic issue context extraction, candidate files with verification guardrails, AI estimates for difficulty and required skills, step-by-step investigation guides, and explicit Observed vs Inferred vs Unknown evidence breakdown. |
-| **Repository RAG Pipeline Foundation** | ✅ **Implemented (Phase 7)** | Deterministic code document loader, language-aware semantic chunker (Python, Markdown, YAML), exact & subword keyword retriever with path boosting, bounded context builder, and dedicated retrieval/context endpoints (`/rag/retrieve`, `/rag/context`). |
-| **Vector Embeddings & Semantic Search** | ✅ **Implemented (Phase 8)** | Local sentence-transformers embeddings (BAAI/bge-small-en-v1.5, 384-dim, CPU), PostgreSQL + pgvector persistence, incremental SHA-256 chunk hashing & caching, semantic cosine similarity retrieval, automatic keyword fallback guardrail, and dedicated API endpoints (`/rag/index`, `/rag/vector-search`). |
-| **Repository-Aware AI Chat** | ✅ **Implemented (Phase 9)** | Grounded RAG-powered chat (`POST /chat`). Retrieves context via pgvector semantic search with automatic keyword fallback, builds bounded prompt, queries Ollama LLM, strictly validates cited sources against actual retrieved chunks (never trusts hallucinated paths), and returns structured answer with verified evidence. Frontend chat UI with source cards, retrieval mode badges, loading states, and in-memory message history. |
-| **Developer Skill Profile & Recommendations** | ✅ **Implemented (Phase 10)** | Developer skill profile (languages, frameworks, tools, domains, experience level, interests). Conservative deterministic normalization. Grounded skill matching against issue requirements, candidate files, and repo stack. Separate AI difficulty estimate vs. skill match score. Explicit match reasons, skill gaps, and learning opportunities. Endpoints (`/profile/skills`, `/repositories/issues/recommend`). Interactive frontend profile editor & recommended issues dashboard. |
-| **AI Contribution Guide** | ✅ **Implemented (Phase 11)** | Grounded, step-by-step contribution guides for GitHub issues. Strict citation verification against retrieved chunks, code areas to inspect, testing/doc plans, pre-flight PR checklist. |
-| **Authentication & User Accounts** | ✅ **Implemented (Phase 12)** | JWT bearer token authentication, bcrypt password hashing, persistent PostgreSQL user and profile storage, with graceful backward-compatible unauthenticated fallback. |
-| **Security & Reliability Hardening** | ✅ **Implemented (Phase 13)** | Path traversal defense (`validate_repository_path`), prompt injection defense tags, bounded schemas, global sanitized error handling, 57 security tests covering 26 attack vectors (317 total tests). |
-| **Docker, CI/CD & Deployment** | ✅ **Implemented (Phase 14)** | Multi-stage production Dockerfiles, 4-tier Docker Compose orchestration (`postgres` + `pgvector`, `ollama`, `backend`, `frontend`), automated GitHub Actions CI/CD pipeline, and complete cloud deployment guides. |
-| **Final UI/UX & Dark/Light Mode** | ✅ **Implemented (Phase 15)** | Seamless dark/light theme switching with `next-themes`, CSS token system, WCAG-compliant contrast, responsive navigation, portfolio-ready documentation, and complete verification suite. |
-| **Vercel Monorepo Deployment & Hosted AI** | ✅ **Implemented (Phase 16)** | Unified deployment of Next.js frontend and FastAPI backend via Vercel Services & edge rewrites. Hosted OpenAI-compatible LLM provider (supporting OpenAI & Groq), remote 384-dimension OpenAI embedding provider (`text-embedding-3-small`), automated Vercel CORS configuration, cold-start DB optimization (`SKIP_DB_INIT`), and 12-step deployment guide. |
-
+New open-source contributors and developers entering unfamiliar codebases frequently face severe friction:
+1. **Steep Architectural Learning Curve**: Large repositories contain thousands of files with complex dependency trees and implicit patterns that documentation rarely explains.
+2. **Dense or Incomplete Documentation**: Documentation is often outdated, incomplete, or assumes deep prior knowledge of internal conventions.
+3. **Issue Discovery Dilemma**: Finding suitable issues is difficult. Labels like `"good first issue"` vary wildly in complexity across projects and often mismatch a developer's specific skillset.
+4. **Execution Uncertainty**: Even after identifying an issue, beginners struggle to identify which files to modify, how to run relevant test suites, and how to verify their solution before submitting a pull request.
 
 ---
 
-## Technology Stack
+## 3. Objectives
 
-- **Frontend**:
-  - **Framework**: Next.js (App Router)
-  - **Language**: TypeScript (Strict Mode)
-  - **Styling**: Tailwind CSS
-  - **UI Architecture**: Modular accessible component primitives (inspired by shadcn/ui pattern)
-  - **Icons**: Lucide React
-- **Backend**:
-  - **Framework**: Python 3.10+ FastAPI
-  - **Data Validation & Serialization**: Pydantic v2
-  - **ORM & Database Toolkit**: SQLAlchemy 2.0
-  - **Database Driver**: asyncpg / psycopg2 for PostgreSQL (pgvector planned)
-  - **Settings Management**: pydantic-settings & python-dotenv
-  - **Server**: Uvicorn
-  - **Testing**: Pytest & HTTPX
-- **Version Control**: Git & GitHub
+OpenSource Copilot addresses these friction points through five core objectives:
+- **Repository Understanding**: Extract repository metadata, analyze directory trees, classify file types, and produce structured architectural overviews.
+- **AI Issue Analysis**: Inspect open GitHub issues, extract technical requirements, identify candidate files to edit, and estimate complexity independently of contributor skill.
+- **Personalized Issue Recommendation**: Map developer declared skills (languages, frameworks, tools) against issue requirements to score relevance, illuminate missing technologies (skill gaps), and highlight learning opportunities.
+- **RAG-Based Repository Q&A**: Provide grounded conversational Q&A over repository source code and documentation using semantic vector search with keyword fallbacks.
+- **Step-by-Step Contribution Guidance**: Synthesize concrete implementation blueprints for specific issues, detailing relevant files, inspection checklists, test suites, and pre-flight PR checks.
+- **Zero-Cloud Dependency**: Operate locally with no mandatory paid API keys or cloud subscriptions.
 
 ---
 
-## System Architecture
+## 4. Key Features
 
-OpenSource Copilot is built as a modular monorepo uniting a Next.js 14 frontend and a FastAPI backend, orchestrated locally via Docker Compose or in production via Vercel Services.
+The application delivers the following fully implemented capabilities:
 
-```mermaid
-graph TD
-    subgraph ClientLayer["Client Layer"]
-        Browser["User Web Browser\n(Desktop, Tablet, Mobile)"]
-    end
-
-    subgraph VercelDeployment["Vercel Monorepo Deployment / Local Dev"]
-        EdgeProxy["Edge Gateway / Rewrites\n(vercel.json / Local Proxy)"]
-        Frontend["Next.js 14 Frontend Service\n(React, TypeScript, Tailwind, next-themes)"]
-        Backend["FastAPI Backend Service\n(Python 3.10+, asyncpg, Pydantic v2)"]
-    end
-
-    subgraph DataAndAILayer["Data Persistence & External Services"]
-        GitHubAPI["GitHub REST API\n(api.github.com)"]
-        PostgresDB[("PostgreSQL 16 + pgvector\n(Users, Profiles, 384-dim Embeddings)")]
-        LLMProvider["AI / LLM Engine\n(Ollama Local / Groq / OpenAI)"]
-        EmbedProvider["Embedding Provider\n(Local BGE-Small / OpenAI text-embedding-3-small)"]
-    end
-
-    Browser -->|"HTTPS Requests\n(Unified Domain)"| EdgeProxy
-    EdgeProxy -->|"/* (Pages & Static Assets)"| Frontend
-    EdgeProxy -->|"/api/* & /docs"| Backend
-    Frontend -->|"Client Fetch /api/*"| EdgeProxy
-
-    Backend -->|"Metadata, Trees & File Content"| GitHubAPI
-    Backend -->|"Vector Similarity & Schema Sync"| PostgresDB
-    Backend -->|"Chat, Architecture & Contribution Guides"| LLMProvider
-    Backend -->|"384-dim Normalized Embeddings"| EmbedProvider
-```
+- **GitHub Repository Analysis**: Live metadata extraction (stars, forks, open issues, license, default branch, topics) via the GitHub REST API.
+- **Repository Metadata & File-Tree Analysis**: Recursive Git tree inspection with automatic file classification (source, documentation, configuration, tests) and file-type recognition.
+- **Source-Code Ingestion**: Safe, bounded batch ingestion of repository code and documentation with strict size ceilings (100 files, 100 KB/file, 2 MB total).
+- **AI Architecture Analysis**: Grounded technical breakdown identifying primary frameworks, design patterns, core components, and application entrypoints.
+- **AI Issue Analysis**: Grounded evaluation of open GitHub issues with deterministic context extraction and verified candidate files.
+- **Difficulty Classification**: Intrinsic technical difficulty estimation (Beginner, Intermediate, Advanced) based on scope of changes, architectural impact, and prerequisites.
+- **Developer Skill Profile**: Customizable developer profile tracking languages, frameworks, developer tools, domains, experience level, and interests with deterministic alias normalization.
+- **Personalized Issue Recommendations**: Transparent, deterministic matching between developer skills and issue requirements, showing match percentage, matching reasons, and constructive skill gaps.
+- **RAG-Based Repository Chat**: Grounded conversational assistant answering codebase queries with verified file citations and code references.
+- **pgvector Vector Search with Keyword Fallback**: 384-dimensional cosine similarity retrieval via PostgreSQL pgvector, with automatic fallback to exact and subword keyword retrieval if unindexed.
+- **AI Contribution Guide**: Structured step-by-step blueprints for resolving issues, covering environment prerequisites, code areas to inspect, testing strategy, and PR checklists.
+- **User Authentication & Profile Persistence**: Secure JWT bearer tokens and bcrypt password hashing with PostgreSQL profile persistence and backward-compatible unauthenticated access.
+- **Security Validation & Injection Protection**: Strict path-traversal protection, GitHub URL validation, bounded request schemas, sanitized error reporting, and prompt-injection defense with untrusted context isolation tags.
 
 ---
 
-## RAG Retrieval Pipeline & Source Verification Flow
+## 5. System Workflow
 
-The Retrieval-Augmented Generation (RAG) subsystem extracts, indexes, and retrieves codebase knowledge with deterministic guardrails that prevent hallucinated file citations.
+The following flowchart illustrates the complete operational workflow from repository input to personalized guidance and chat:
 
 ```mermaid
 flowchart TD
-    subgraph IndexingPhase["1. Code Ingestion & Vector Indexing Phase"]
-        RawCode["Repository Code & Docs\n(Python, Markdown, YAML)"] --> SafetyFilter["Safety Filter & File Scanner\n(Limits: 100 files, 100 KB/file)"]
-        SafetyFilter --> ASTChunker["Semantic Language Chunker\n(AST boundary & line-aware chunking)"]
-        ASTChunker --> ChunkHash["SHA-256 Incremental Hasher\n(Skip unchanged chunk re-embedding)"]
-        ChunkHash --> EmbedModel["Embedding Provider\n(bge-small-en-v1.5 or text-embedding-3-small)"]
-        EmbedModel --> VectorStore[("pgvector Database\n(384-dimensional cosine index)")]
-    end
-
-    subgraph RetrievalPhase["2. Hybrid Retrieval & Fallback Phase"]
-        UserQuestion["Developer Query / Question"] --> QueryEmbed["Generate Query Vector"]
-        QueryEmbed --> VectorSearch["pgvector Cosine Similarity Search\n(Cosine distance threshold <= 0.8)"]
-        VectorSearch -->|"Fallback if unindexed"| KeywordSearch["Keyword & Subword Matcher\n(Path & filename boosting)"]
-        VectorSearch --> ChunksFound["Ranked Candidate Chunks"]
-        KeywordSearch --> ChunksFound
-    end
-
-    subgraph GenerationPhase["3. Grounded Inference & Verification Phase"]
-        ChunksFound --> BoundedContext["Bounded Context Builder\n(Character budget: 12,000 chars)"]
-        UserQuestion --> BoundedContext
-        BoundedContext --> Demarcation["Prompt Construction\n(Demarcated with === UNTRUSTED CONTEXT ===)"]
-        Demarcation --> LLMGenerate["LLM Inference\n(Ollama / Groq / OpenAI)"]
-        LLMGenerate --> RawAnswer["Raw AI Generation"]
-        RawAnswer --> CitationFilter["Citation Verification Guardrail\n(Strip unretrieved / hallucinated citations)"]
-        ChunksFound -.->|"Validate against actual chunks"| CitationFilter
-        CitationFilter --> VerifiedResponse["Verified Answer with Evidence Cards"]
-    end
+    User(["Developer"]) --> EnterRepo["Enter GitHub Repository URL\n(e.g., pallets/flask)"]
+    EnterRepo --> GitHubAPI["GitHub REST API\n(api.github.com)"]
+    
+    GitHubAPI --> RepoData["Repository Metadata, README,\nOpen Issues & Git File Tree"]
+    RepoData --> IngestFilter["Source Ingestion & Safety Filter\n(Limit: 100 files, 100 KB/file)"]
+    
+    IngestFilter --> Chunker["Language-Aware Chunker\n(AST & Line Boundaries)"]
+    Chunker --> Hasher["SHA-256 Incremental Hasher\n(Skip Unchanged Chunks)"]
+    Hasher --> Embedder["Sentence Transformers\n(BAAI/bge-small-en-v1.5)"]
+    
+    Embedder --> PGVector[("PostgreSQL 16 + pgvector\n(384-dim Embeddings)")]
+    
+    DevProfile["Developer Skill Profile\n(Languages, Tools, Level)"] --> SkillMatcher["Deterministic Skill Matcher"]
+    RepoData -.->|"Issue Requirements"| SkillMatcher
+    SkillMatcher --> RecIssues["Personalized Recommended Issues\n(Match Score %, Skill Gaps)"]
+    
+    UserQuery["User Query / Selected Issue"] --> RAGRetrieval["Hybrid RAG Retrieval\n(pgvector Cosine Search + Keyword Fallback)"]
+    PGVector --> RAGRetrieval
+    
+    RAGRetrieval --> ContextBuilder["Bounded Context Builder\n(=== UNTRUSTED CONTEXT ===)"]
+    ContextBuilder --> OllamaLLM["Local Ollama LLM\n(llama3.2:3b)"]
+    
+    OllamaLLM --> Guardrail["Citation Verification Guardrail\n(Strip Non-Retrieved Sources)"]
+    
+    Guardrail --> FeaturesOut{"Output Generation"}
+    FeaturesOut --> ArchAnalysis["Architectural Overview Dashboard"]
+    FeaturesOut --> GroundedChat["Grounded Codebase Chat with Citations"]
+    FeaturesOut --> ContribGuide["Step-by-Step Contribution Guide"]
+    
+    RecIssues --> FrontendView["Next.js Responsive Web UI"]
+    ArchAnalysis --> FrontendView
+    GroundedChat --> FrontendView
+    ContribGuide --> FrontendView
+    FrontendView --> User
 ```
 
 ---
 
-## End-to-End User Experience & Interaction Flow
+## 6. Architecture
+
+OpenSource Copilot follows a modular, decoupled architecture where the Next.js frontend communicates with the FastAPI backend, backed by PostgreSQL + pgvector and a local Ollama instance:
 
 ```mermaid
 flowchart TD
-    Start(["Developer Lands on OpenSource Copilot"]) --> InputRepo["Enter Public GitHub Repository URL\n(e.g., pallets/flask)"]
+    subgraph FrontendLayer["Presentation Layer (Port 3000)"]
+        NextJS["Next.js 14 App Router\n(React, TypeScript, Tailwind CSS, next-themes)"]
+    end
+
+    subgraph BackendLayer["API & Application Layer (Port 8000)"]
+        FastAPI["FastAPI REST API Gateway\n(Dependency Injection, CORS, Error Sanitization)"]
+        
+        subgraph ServicesLayer["Domain Services Layer"]
+            GitHubService["GitHub Service\n(httpx, Tree Traversal, Rate Limiter)"]
+            LLMService["AI / LLM Service\n(Ollama Provider, Prompt Builder)"]
+            IssueService["Issue Analysis Service\n(Difficulty Estimator, Context Builder)"]
+            SkillService["Skill Matching Service\n(Normalizer, Score Calculator)"]
+            GuideService["Contribution Guide Service\n(Blueprint Synthesizer, Verification)"]
+            RAGService["RAG Pipeline Service\n(Chunker, Retriever, Indexer)"]
+        end
+    end
+
+    subgraph StorageLayer["Data & Inference Layer"]
+        Postgres[("PostgreSQL 16 + pgvector\n(Port 5432/5433 | Users, Profiles, Vectors)")]
+        OllamaEngine["Local Ollama Engine\n(Port 11434 | llama3.2:3b)"]
+    end
+
+    NextJS -->|"HTTP / JSON (/api/*)"| FastAPI
+    FastAPI --> ServicesLayer
     
-    InputRepo --> ValidateURL{"Valid GitHub URL?"}
-    ValidateURL -- No --> ShowURLError["Display Friendly Error\n(Invalid format / unsupported host)"]
-    ValidateURL -- Yes --> FetchRepoData["Fetch Repository Metadata & Tree\n(GitHub REST API)"]
-    
-    FetchRepoData --> DisplayOverview["Display Repository Overview Dashboard\n(Stars, Forks, Language Breakdown, Topics, Activity)"]
-    DisplayOverview --> FeatureChoice{"Choose Action"}
-    
-    FeatureChoice -->|"AI Analysis"| RunAIAnalysis["Generate Architectural Overview\n(Tech stack, key components, entrypoints)"]
-    FeatureChoice -->|"Explore Issues"| BrowseIssues["Fetch Open GitHub Issues\n(Filter PRs, classify labels & difficulty)"]
-    FeatureChoice -->|"Repository Chat"| StartRAGChat["Ask Questions About Codebase\n(pgvector semantic search + verified citations)"]
-    FeatureChoice -->|"Developer Profile"| EditProfile["Configure Developer Skills\n(Languages, frameworks, experience level)"]
-    
-    BrowseIssues --> MatchIssues["Match Issues Against Skill Profile\n(Match % score, skill gaps & learning opportunities)"]
-    MatchIssues --> SelectIssue["Select Target Issue"]
-    SelectIssue --> GenGuide["Generate Step-by-Step Contribution Guide\n(Files to inspect, testing plan, PR checklist)"]
-    
-    RunAIAnalysis --> UserSuccess(["Ready to Contribute"])
-    StartRAGChat --> UserSuccess
-    GenGuide --> UserSuccess
+    GitHubService -->|"HTTPS Requests"| RemoteGitHub["GitHub REST API"]
+    RAGService --> Postgres
+    SkillService --> Postgres
+    GuideService --> RAGService
+    LLMService --> OllamaEngine
 ```
 
 ---
 
-## Monorepo Project Structure
+## 7. RAG Pipeline
 
-```
-opensource-copilot/
-├── frontend/                     # Next.js TypeScript application
-│   ├── app/                      # App router (layout, landing page, styles)
-│   ├── components/               # Modular UI and layout components
-│   │   ├── layout/               # Navbar, Footer, ThemeToggle
-│   │   ├── sections/             # Hero, Analyzer, Overview, Issues, Chat
-│   │   └── ui/                   # Reusable button, input, card, badge
-│   ├── lib/                      # Utilities (cn class merger, API client)
-│   ├── types/                    # Domain TypeScript interfaces (incl. GitHub API types)
-│   ├── public/                   # Static assets
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── backend/                      # FastAPI Python application
-│   ├── app/
-│   │   ├── api/                  # Route handlers & endpoints
-│   │   │   └── v1/
-│   │   │       ├── endpoints/    # Health, Repositories, Profile, Auth
-│   │   │       └── router.py     # Main API router
-│   │   ├── chat/                 # Repository chat domain
-│   │   │   ├── models.py         # ChatQuestion, ChatSource, ChatAnswer
-│   │   │   ├── context.py        # RAG context retrieval for chat
-│   │   │   └── service.py        # RepositoryChatService orchestration
-│   │   ├── core/                 # App configuration and database setup
-│   │   ├── embeddings/           # SentenceTransformer embedding provider
-│   │   ├── models/               # SQLAlchemy declarative entity definitions
-│   │   ├── prompts/              # Grounded system prompts (injection defended)
-│   │   ├── rag/                  # RAG pipeline: chunker, retriever, indexer
-│   │   ├── schemas/              # Pydantic data schemas
-│   │   ├── services/             # Business logic, GitHub service, file filter
-│   │   ├── repositories/         # Database access repository pattern
-│   │   └── main.py               # FastAPI application factory
-│   ├── main.py                   # Vercel and serverless entrypoint module
-│   ├── tests/                    # Backend automated tests (329 tests)
-│   └── requirements.txt
-│
-├── docs/                         # Technical documentation & architecture
-│   ├── architecture.md
-│   └── deployment.md
-├── vercel.json                   # Vercel Monorepo Services & Rewrites configuration
-├── .gitignore                    # Monorepo ignore rules
-├── .env.example                  # Environment template
-└── README.md
-```
-
----
-
-## Quick Start with Docker Compose (Recommended)
-
-Run the entire application stack (PostgreSQL + pgvector, Ollama, FastAPI Backend, Next.js Frontend) with a single command:
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/opencopilot.git
-cd opencopilot
-
-# 2. Copy the environment template
-cp .env.example .env
-
-# 3. Start all services in the background
-docker compose up -d --build
-
-# 4. Pull the recommended local LLM model (one-time setup)
-docker compose exec ollama ollama pull llama3.2:3b
-```
-
-Once started:
-- **Frontend UI**: [http://localhost:3000](http://localhost:3000)
-- **FastAPI Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **API Health Check**: [http://localhost:8000/api/health](http://localhost:8000/api/health)
-
-For full deployment instructions, hybrid workflows, and production setup, see the [Deployment & Operations Guide](docs/deployment.md).
-
----
-
-## Deploy to Vercel (Monorepo Deployment)
-
-OpenSource Copilot is pre-configured for unified deployment on **Vercel** as a monorepo. Both the Next.js frontend and the FastAPI backend are deployed together in a single Vercel project with edge path rewrites (`/api/*` -> FastAPI backend, `/*` -> Next.js frontend).
-
-### Quick Deployment Steps
-1. Push your repository to GitHub.
-2. Provision a cloud PostgreSQL database with `pgvector` enabled (e.g., [Neon](https://neon.tech) or [Supabase](https://supabase.com)).
-3. Import the repository in [Vercel](https://vercel.com) (keep Root Directory as `./`).
-4. Configure environment variables in Vercel Dashboard:
-   - `ENVIRONMENT=production`
-   - `DATABASE_URL=postgresql+asyncpg://...`
-   - `AUTH_SECRET_KEY=<generate-with-openssl-rand-hex-32>`
-   - `LLM_PROVIDER=groq` (or `openai`)
-   - `LLM_API_KEY=<your-api-key>`
-   - `LLM_MODEL=llama-3.3-70b-versatile` (or `gpt-4o-mini`)
-   - `EMBEDDING_PROVIDER=openai`
-   - `EMBEDDING_API_KEY=<your-openai-api-key>`
-5. Click **Deploy**. Both services build and deploy under a single unified URL.
-
-Detailed 12-step instructions and troubleshooting are available in [docs/deployment.md](docs/deployment.md#4-deploying-opensource-copilot-on-vercel-12-step-guide).
-
----
-
-## Manual Local Development Setup
-
-### Prerequisites
-- Node.js 18+ and npm
-- Python 3.10+
-- PostgreSQL with pgvector (or use `docker compose up -d postgres`)
-
----
-
-### Backend Setup
-
-1. Open a terminal and navigate to the `backend/` directory:
-   ```bash
-   cd backend
-   ```
-
-2. Create and activate a Python virtual environment:
-   ```bash
-   # Windows PowerShell
-   python -m venv venv
-   .\venv\Scripts\Activate.ps1
-
-   # macOS / Linux
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. Install backend dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Create your local environment file:
-   ```bash
-   cp .env.example .env
-   ```
-
-5. Run automated tests:
-   ```bash
-   pytest
-   ```
-
-6. Start the FastAPI development server:
-   ```bash
-   python -m uvicorn app.main:app --reload --port 8000
-   ```
-
-7. Verify the service is running:
-   - Health check: [http://localhost:8000/api/health](http://localhost:8000/api/health)
-   - Interactive Swagger API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
----
-
-### Frontend Setup
-
-1. Open another terminal and navigate to the `frontend/` directory:
-   ```bash
-   cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create your local environment file:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-4. Run the development server:
-   ```bash
-   npm run dev
-   ```
-
-5. Open your browser at [http://localhost:3000](http://localhost:3000).
-
-### Local Ollama Setup (Phase 5 - AI Analysis)
-
-> **Note**: Ollama is **100% optional** for application startup. If Ollama is offline or not installed, the application and repository explorer continue to function normally.
-
-1. **Install Ollama**: Download and install from [ollama.com](https://ollama.com/).
-2. **Start Ollama Service**:
-   ```bash
-   ollama serve
-   ```
-3. **Pull the Default Model**:
-   ```bash
-   ollama pull llama3.2:3b
-   ```
-   *(Or run `ollama run llama3.2:3b` to pull and test the model interactively).*
-4. **Analyze with AI**: With FastAPI and Next.js running, submit any public GitHub repository URL. The system will build a prioritized context budget and generate grounded architectural insights.
-
----
-
-## Environment Variables
-
-| Variable | Description | Default / Example |
-| :--- | :--- | :--- |
-| `DATABASE_URL` | PostgreSQL connection string with `asyncpg` driver | `postgresql+asyncpg://postgres:postgres@localhost:5432/opencopilot` |
-| `AUTH_SECRET_KEY` | Secret key for signing JWT tokens (min 32 characters in production) | `dev-insecure-secret-key-change-in-production-min-32-chars-long` |
-| `AUTH_ALGORITHM` | Algorithm used for JWT token signing | `HS256` |
-| `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | Token session validity in minutes | `10080` (7 days) |
-| `GITHUB_TOKEN` | GitHub Personal Access Token (optional, raises rate limit to 5,000 req/hr) | `ghp_...` or empty |
-| `GITHUB_API_BASE_URL` | Base URL for GitHub REST API | `https://api.github.com` |
-| `GITHUB_REQUEST_TIMEOUT` | Timeout in seconds for GitHub API requests | `15` |
-| `MAX_TREE_ITEMS` | Max items processed from recursive Git tree | `10000` |
-| `MAX_SOURCE_FILES` | Max source/doc files ingested in batch operation | `100` |
-| `MAX_FILE_SIZE_BYTES` | Max size per individual file for content retrieval | `102400` (100 KB) |
-| `MAX_TOTAL_CODE_BYTES` | Max total code ingested per repository | `2097152` (2 MB) |
-| `LLM_PROVIDER` | AI provider (`ollama`, `openai`, `groq`) | `ollama` (local) / `openai` / `groq` |
-| `LLM_MODEL` | Model name identifier | `llama3.2:3b` / `gpt-4o-mini` / `llama-3.3-70b-versatile` |
-| `LLM_API_KEY` | API key for hosted providers (OpenAI or Groq) | `""` (local) or `sk-...` / `gsk_...` |
-| `LLM_BASE_URL` | Base URL for LLM API | `http://localhost:11434` / `https://api.openai.com/v1` |
-| `OLLAMA_BASE_URL` | Base URL for local Ollama HTTP API | `http://localhost:11434` |
-| `OLLAMA_MODEL` | Model name identifier in Ollama | `llama3.2:3b` |
-| `LLM_TEMPERATURE` | Sampling temperature for AI generation | `0.2` |
-| `LLM_MAX_OUTPUT_TOKENS` | Max output tokens generated by LLM | `4096` |
-| `LLM_REQUEST_TIMEOUT` | Timeout in seconds for LLM generation | `120.0` |
-| `EMBEDDING_PROVIDER` | Embedding engine (`sentence_transformers` local CPU or `openai` remote) | `sentence_transformers` |
-| `EMBEDDING_MODEL` | Embedding model identifier | `BAAI/bge-small-en-v1.5` / `text-embedding-3-small` |
-| `EMBEDDING_DIMENSION` | Vector dimension produced (must match DB schema) | `384` |
-| `EMBEDDING_API_KEY` | API key for remote OpenAI embeddings | `""` or `sk-...` |
-| `EMBEDDING_BASE_URL` | Custom base URL for embeddings API | `""` or `https://api.openai.com/v1` |
-| `SKIP_DB_INIT` | Skip database schema auto-init on cold starts if already migrated | `false` |
-| `AI_MAX_CONTEXT_CHARS` | Maximum character budget for AI context | `60000` |
-| `AI_MAX_FILES_IN_CONTEXT` | Maximum files included in AI context | `15` |
-| `AI_MAX_FILE_CHARS` | Maximum character limit per individual file before truncation | `6000` |
-| `CORS_ORIGINS` | Allowed frontend origins (JSON array or comma-separated) | `["http://localhost:3000"]` |
-| `NEXT_PUBLIC_API_BASE_URL` | API endpoint URL (defaults to relative `/api` on Vercel) | `http://localhost:8000/api` |
-
-
----
-
-## Developer Skill Profile & Personalized Recommendations (Phase 10)
-
-Phase 10 provides transparent, personalized issue recommendations based on a lightweight developer skill profile:
+The Retrieval-Augmented Generation (RAG) pipeline indexes codebase documents into vector embeddings and extracts relevant context with strict grounding:
 
 ```mermaid
 flowchart LR
-    subgraph ProfileInput["Developer Profile"]
-        DeclaredSkills["Developer Skills\n(e.g., Python, React, Docker)"]
-        ExpLevel["Experience Level\n(Beginner / Intermediate / Advanced)"]
-        DeclaredSkills --> Normalizer["Skill Normalizer\n(Alias mapping & deduplication)"]
-        Normalizer --> StoredProfile[("PostgreSQL\ndeveloper_profiles")]
-        ExpLevel --> StoredProfile
-    end
-
-    subgraph IssueAnalysis["Issue Requirements"]
-        GitHubIssue["GitHub Issue Body & Comments"] --> IssueAnalyzer["AI Issue Classifier"]
-        IssueAnalyzer --> ReqSkills["Required Skills & Tech"]
-        IssueAnalyzer --> CandidateFiles["Candidate Files to Modify"]
-        IssueAnalyzer --> AIDifficulty["AI Difficulty Estimate\n(Beginner / Interm / Advanced)"]
-    end
-
-    subgraph MatchingAlgorithm["Skill Matching Algorithm"]
-        StoredProfile --> MatchEngine["Deterministic Matcher"]
-        ReqSkills --> MatchEngine
-        CandidateFiles --> MatchEngine
-        
-        MatchEngine --> MatchScore["Skill Match Score %\n(Overlapping skills / required skills)"]
-        MatchEngine --> SkillGaps["Skill Gaps\n(Missing technologies needed)"]
-        MatchEngine --> Opportunities["Learning Opportunities\n(New skills to gain)"]
-    end
-
-    subgraph OutputView["Personalized Issue Feed"]
-        MatchScore --> RankedCard["Issue Recommendation Card\n(Sorted by Match % Descending)"]
-        SkillGaps --> RankedCard
-        Opportunities --> RankedCard
-        AIDifficulty --> RankedCard
-    end
+    RepoFiles["Repository Source Code & Docs\n(Python, Markdown, YAML)"] --> FileFilter["File Filter & Safety Scanner\n(Skip Binary, Vendor & Minified Files)"]
+    FileFilter --> Chunker["Structure-Aware Chunker\n(AST & Function/Class Boundaries)"]
+    Chunker --> SentenceTrans["Sentence Transformers\n(Local CPU Ingestion)"]
+    SentenceTrans --> Embeddings["384-Dimensional Vectors\n(BAAI/bge-small-en-v1.5)"]
+    Embeddings --> PGVectorStore[("PostgreSQL + pgvector\n(Cosine Distance Index)")]
+    
+    Query["User Question / Issue Query"] --> QueryVec["Query Embedding"]
+    QueryVec --> SimSearch{"pgvector Similarity Retrieval"}
+    PGVectorStore --> SimSearch
+    
+    SimSearch -->|"Success (Cosine <= 0.8)"| RetrievedChunks["Ranked Code Chunks"]
+    SimSearch -->|"Fallback if unindexed"| KeywordFallback["Exact & Subword Keyword Matcher\n(Path & Filename Boosting)"]
+    KeywordFallback --> RetrievedChunks
+    
+    RetrievedChunks --> ContextAssembly["Bounded Context Assembly\n(Demarcated Prompt Injection Shield)"]
+    ContextAssembly --> OllamaInference["Local Ollama Inference\n(llama3.2:3b)"]
+    OllamaInference --> CitationGuard["Citation Verification Filter\n(Discard Hallucinated Citations)"]
+    CitationGuard --> GroundedAnswer["Verified Grounded Answer"]
 ```
 
-- **Developer Skill Profile**: Captures `programming_languages`, `frameworks`, `tools`, `domains`, `experience_level`, and `interests`.
-- **Deterministic Skill Normalization**: Normalizes aliases (e.g., `"js"` → `"JavaScript"`, `"postgres"` → `"PostgreSQL"`) conservatively and preserves unknown skills without discarding them.
-- **Skill Match vs. AI Difficulty Estimate**:
-  - **Skill Match Score** (0% to 100%): Measures the proportion of analyzed requirements that overlap with the developer's declared skills. It does *not* claim to measure developer competency.
-  - **AI Difficulty Estimate** (Beginner, Intermediate, Advanced, Unknown): Intrinsic technical complexity estimated by AI independently of the user's skill set.
-- **Transparent Match Reasons & Skill Gaps**: Explains *why* each issue matched (required skill overlap, candidate file languages, repo technology alignment), clearly indicates missing skills (*skill gaps*), and highlights constructive *learning opportunities*.
-- **Deterministic Recommendation Sorting**: Ordered by match score descending, with issue number ascending as a deterministic tie-breaker. Strictly avoids subjective labeling such as "best", "winner", or "easiest".
-- **Profile Persistence**: Synchronized in PostgreSQL via `developer_profiles` table when authenticated, with transparent local storage fallback for unauthenticated users.
+> **Fallback Guardrail**: If a repository has not yet been indexed into pgvector or the database is starting up, the retriever seamlessly and automatically falls back to an exact and subword keyword retrieval engine with path and filename boosting.
 
 ---
 
-## Grounded AI Contribution Guide (Phase 11)
+## 8. Technology Stack
 
-Phase 11 introduces repository-specific, AI-powered contribution guides for targeted GitHub issues:
+### Frontend
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript (Strict Mode)
+- **Styling**: Tailwind CSS
+- **Theme**: `next-themes` (Dark and Light modes)
+- **Icons**: Lucide React
+- **UI Components**: Modular component primitives (inspired by shadcn/ui)
 
-- **Strict Source Grounding**: Recommendations are strictly grounded in repository code retrieved via pgvector / keyword RAG. Hallucinated file paths or line ranges that do not exist in retrieved chunks are automatically filtered out.
-- **Structured Implementation Blueprint**:
-  - **Issue Understanding**: Plain-language summary, problem root cause / symptoms, and expected resolution behavior.
-  - **Prerequisites & Environment**: Runtime requirements, developer tools, and required domain knowledge.
-  - **Relevant Repository Files**: Validated source files to inspect with maintainer-annotated roles (`source`, `test`, `config`, `doc`) and reasons.
-  - **Sequential Implementation Plan**: Numbered step-by-step instructions referencing specific files.
-  - **Code Areas to Inspect**: Targeted classes, methods, or modules with maintainer checklist items.
-  - **Testing Plan**: Specific test suites (`unit`, `integration`, `regression`, `manual`) and test file commands.
-  - **Documentation Plan**: Docstrings, tutorial, and configuration documentation updates needed.
-  - **Pull Request Pre-Flight Checklist**: Interactive checklist covering test execution, linting, and issue linkage.
-  - **Contributor Learning Opportunities**: Concrete skills, patterns, and protocols learned from solving the issue.
-  - **Uncertainties & Caveats**: Explicitly notes unindexed files or areas requiring maintainer feedback.
-- **API Endpoint**: `POST /api/v1/repositories/issues/contribution-guide`
+### Backend
+- **Framework**: Python 3.10+ FastAPI
+- **Data Validation & Serialization**: Pydantic v2
+- **ORM & Database Toolkit**: SQLAlchemy 2.0
+- **Database Driver**: `asyncpg` (Asynchronous PostgreSQL client) & `psycopg2-binary`
+- **Settings Management**: `pydantic-settings` & `python-dotenv`
+- **Server**: Uvicorn
 
----
+### Local AI & Vector Database
+- **Vector Database**: PostgreSQL 16 with `pgvector` extension
+- **Embedding Provider**: Sentence Transformers (`BAAI/bge-small-en-v1.5`, 384 dimensions, CPU execution)
+- **Local LLM Engine**: Ollama
+- **Local Model**: `llama3.2:3b`
 
-## Authentication & User Accounts (Phase 12)
-
-Phase 12 implements persistent user accounts and session authentication:
-
-- **JWT Bearer Token Authentication**: Secure token issuance using PyJWT and HS256 algorithm with configurable expiration.
-- **bcrypt Password Security**: Passwords are securely hashed with bcrypt using automatically generated unique salts. Plaintext passwords are never stored, logged, or returned in API responses.
-- **PostgreSQL User Accounts & Profile Persistence**:
-  - `users` table: User ID, email, password hash, display name, timestamps.
-  - `developer_profiles` table: Persists declared developer skills, frameworks, tools, and interests across sessions and devices.
-- **Graceful Backward Compatibility**:
-  - Fully backward compatible: All core repository analysis, chat, issue recommendations, and contribution guide features remain accessible without authentication.
-  - Optional auth dependency: If an access token is provided, developer profile changes persist to PostgreSQL; otherwise, the in-memory fallback is used.
-- **Frontend Auth Integration**:
-  - `AuthProvider` context and `useAuth()` hook for state and token hydration.
-  - Dedicated `/login` and `/register` pages with form validation and loading feedback.
-  - Auth-aware Navbar displaying user credentials and Logout action or Login/Sign Up links.
-  - Developer Skill Profile displaying live account synchronization status.
-- **API Endpoints**:
-  - `POST /api/v1/auth/register`: Create a new user account (201 Created).
-  - `POST /api/v1/auth/login`: Authenticate credentials and receive a JWT token (200 OK).
-  - `GET /api/v1/auth/me`: Inspect current authenticated user information (200 OK).
-  - `POST /api/v1/auth/logout`: Revoke client session (200 OK).
+### Infrastructure & Tooling
+- **External API**: GitHub REST API (v3) via asynchronous `httpx`
+- **Containerization**: Docker & Docker Compose
+- **Testing**: Pytest & Pytest-Asyncio (329 tests)
+- **CI/CD**: GitHub Actions
 
 ---
 
-## Security, Hardening & Reliability (Phase 13)
+## 9. Project Structure
 
-Phase 13 hardens OpenSource Copilot across backend services, API endpoints, and LLM integrations:
-
-- **Path Traversal Protection**:
-  - `validate_repository_path()` utility enforces strict path normalization across file operations and GitHub fetching.
-  - Blocks null byte injection (`\x00`), traversal segments (`../`, `..\`, `..%2f`, `..%5c`, double-encoded `%252f`), absolute filesystem paths (`/etc/passwd`, `C:\Windows`), and paths exceeding 500 characters.
-  - Integrated into `github_service.fetch_file_content` and `repository_file_filter.should_ignore_path`.
-
-- **Prompt Injection Defense**:
-  - All AI system prompts (`repository_chat`, `contribution_guide`, `issue_analysis`, `repository_analysis`) contain explicit injection defense directives.
-  - Repository code and issue bodies are strictly isolated within `=== UNTRUSTED REPOSITORY CONTEXT ===` demarcation tags.
-  - The model is instructed to treat all repository and issue contents strictly as reference data and never follow instructions, system overrides, or roleplay requests contained within them.
-
-- **Input Validation & Payload Size Bounds**:
-  - Bounded input schemas: Questions (max 2,000 chars), queries (max 1,000 chars), repository URLs (max 500 chars), and branch names (max 100 chars).
-  - Parameter bounds: `top_k` restricted to `1 <= top_k <= 20`, issue numbers required to be positive (`>= 1`).
-  - Developer skill profiles enforce limits on array size (max 50 entries) and string length (max 100 chars per entry).
-
-- **Global Error Handling & Sanitization**:
-  - Application-level exception handler captures unexpected exceptions, logs full stack traces internally for diagnostics, and returns generic `500 Internal Server Error` payloads.
-  - Prevents database connection strings, passwords, file paths, or internal tracebacks from leaking to API clients.
-
-- **Comprehensive Security Test Suite**:
-  - 57 dedicated security hardening tests in `backend/tests/test_security_hardening.py` covering all 26 security scenarios:
-    - JWT authentication validation (invalid, expired, malformed, missing, inactive user).
-    - Cross-user data isolation (User A vs. User B).
-    - Path traversal and absolute path rejection.
-    - URL validation and malicious host blocking.
-    - Oversized input handling and boundary conditions.
-    - Prompt injection defense verification.
-    - Hallucinated source and line range filtering.
-    - Malformed LLM JSON recovery.
-    - External service resilience (Ollama timeout/offline, GitHub 403/404/timeouts).
-    - Database failure response sanitization.
-  - **Total Backend Test Coverage**: 329 tests passing with 0 failures.
-
----
-
-## Docker, CI/CD & Deployment Preparation (Phase 14)
-
-Phase 14 provides complete, reproducible containerization, multi-service orchestration, automated GitHub Actions CI/CD, and production deployment guides:
-
-- **Multi-Stage Production Dockerfiles**:
-  - `backend/Dockerfile`: Minimal `python:3.11-slim` image, non-root `appuser` (UID 10001), built-in health check via FastAPI `/api/health`, dependencies installed with `--no-cache-dir`.
-  - `frontend/Dockerfile`: Next.js production build using `node:20-alpine` across three isolated stages (`deps` -> `builder` -> `runner`), non-root `nextjs` user (UID 1001), and parameterized `NEXT_PUBLIC_API_BASE_URL`.
-
-- **Multi-Service Docker Compose Topology (`docker-compose.yml`)**:
-  - **`postgres`**: PostgreSQL 16 with `pgvector` extension and persistent `pgvector_data` volume.
-  - **`ollama`**: Local LLM engine container with persistent `ollama_data` volume.
-  - **`backend`**: FastAPI API server with dependency health checks on `postgres` and `ollama`.
-  - **`frontend`**: Next.js client UI connected to backend.
-  - **Isolated Bridge Network**: `opencopilot_net` decouples internal container communication from host port exposure.
-
-- **Continuous Integration Pipeline (`.github/workflows/ci.yml`)**:
-  - **Backend Job**: Automatically spins up a PostgreSQL + pgvector service container, sets up Python 3.11 with pip caching, and runs the complete Pytest suite on every push and pull request.
-  - **Frontend Job**: Sets up Node.js 20 with npm caching, verifies strict TypeScript typing (`tsc --noEmit`), runs ESLint, and compiles a Next.js production build.
-  - **Docker Validation Job**: Validates `docker compose config` syntax and verifies buildability of backend and frontend images.
-  - **Secret Hygiene Audit**: Verifies that no development `.env` files with credentials or keys are committed to Git.
-
-- **Production & Cloud Deployment Guide**:
-  - Detailed in [`docs/deployment.md`](docs/deployment.md).
-  - Includes local Docker Compose setup, hybrid local-Docker workflows, unified Vercel monorepo deployment with cloud PostgreSQL (`pgvector`), and hosted AI inference with Groq / OpenAI.
+```
+opensource-copilot/
+├── frontend/                     # Next.js 14 Web Application
+│   ├── app/                      # App router (layout, login, register, page)
+│   ├── components/               # Modular UI, analyzer, chat, issues, profile
+│   ├── context/                  # AuthContext and state providers
+│   ├── lib/                      # API client and utility helpers
+│   ├── types/                    # Domain TypeScript type definitions
+│   └── package.json
+│
+├── backend/                      # FastAPI Python Application
+│   ├── app/
+│   │   ├── api/v1/               # API endpoints (health, auth, repos, profile)
+│   │   ├── auth/                 # JWT authentication, security, bcrypt hashing
+│   │   ├── chat/                 # RAG repository chat orchestration
+│   │   ├── contribution/         # Step-by-step contribution guide generator
+│   │   ├── core/                 # Settings configuration, database connection
+│   │   ├── embeddings/           # Sentence Transformers local embedding engine
+│   │   ├── models/               # SQLAlchemy declarative database entities
+│   │   ├── prompts/              # Grounded LLM system prompts (injection defended)
+│   │   ├── rag/                  # Semantic chunker, retriever, pgvector indexer
+│   │   ├── repositories/         # Database access repository layer
+│   │   ├── schemas/              # Pydantic schemas and serialization models
+│   │   ├── services/             # Business logic (GitHub, issues, skills, LLM)
+│   │   └── main.py               # FastAPI application entrypoint
+│   ├── tests/                    # 329 comprehensive automated tests
+│   └── requirements.txt          # Python dependencies
+│
+├── docs/                         # Technical architecture & deployment guides
+│   ├── architecture.md
+│   └── deployment.md
+├── docker-compose.yml            # Multi-service local Docker orchestration
+├── .gitignore                    # Git ignore definitions
+├── .env.example                  # Environment configuration template
+└── README.md                     # Project documentation
+```
 
 ---
 
-## Final UI/UX, Dark/Light Mode & Portfolio Polish (Phase 15)
+## 10. Local Setup
 
-Phase 15 elevates OpenSource Copilot to a production-grade, portfolio-ready developer application:
+Follow these step-by-step Windows PowerShell instructions to run OpenSource Copilot locally.
 
-- **Complete Dark / Light Mode System**:
-  - Powered by `next-themes` with automatic system preference detection (`prefers-color-scheme`) and persistent `localStorage` synchronization.
-  - Zero hydration flicker via `suppressHydrationWarning` and dynamic client-side mount guards.
-  - Interactive Sun/Moon toggle button accessible in both desktop and mobile navigation headers.
-
-- **Unified Semantic Token Architecture**:
-  - Full HSL-based CSS variable system supporting light mode (clean crisp white/slate canvas) and dark mode (sleek deep blue/slate palette).
-  - High-contrast, WCAG AA-compliant dual theme utility classes across all components (e.g., `text-emerald-600 dark:text-emerald-400`, `text-amber-600 dark:text-amber-400`).
-  - Seamless border, card, and backdrop blur adjustments for elevated visual hierarchy.
-
-- **Polished User Experience**:
-  - Removal of legacy phase placeholders and developer debug buttons.
-  - Streamlined empty and loading states with actionable suggestions and sample repository quick-picks.
-  - Responsive design optimized across mobile (375px), tablet (768px), and desktop (1280px+) viewport breakpoints.
+### Prerequisites
+- [Git](https://git-scm.com/)
+- [Node.js 18+](https://nodejs.org/) and npm
+- [Python 3.10+](https://www.python.org/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Ollama](https://ollama.com/)
 
 ---
 
-## Vercel Unified Monorepo Deployment & Hosted AI (Phase 16)
-
-Phase 16 configures OpenSource Copilot for seamless, one-click production deployment on **Vercel** as a unified monorepo:
-
-- **Unified Vercel Services Architecture**:
-  - `vercel.json` configures the Next.js frontend (`frontend/`) and FastAPI backend (`backend/`) as native services in a single Vercel project.
-  - Edge path rewrites route `/api/*`, `/docs`, and `/openapi.json` to the FastAPI service and all other requests (`/*`) to the Next.js service.
-  - Same-origin client requests eliminate CORS complexity in production while strictly guarding against unauthorized cross-origin requests.
-  - Top-level `backend/main.py` entrypoint exporting `app` for serverless runners.
-
-- **Hosted OpenAI-Compatible LLM Provider**:
-  - Production-ready `OpenAICompatibleProvider` in `backend/app/services/llm_provider.py` with asynchronous `httpx` execution, structured JSON mode (`response_format={"type": "json_object"}`), configurable timeouts, and error handling.
-  - Supports **Groq** (`llama-3.3-70b-versatile` on generous free tier) and **OpenAI** (`gpt-4o-mini`).
-  - Seamlessly resolved by `llm_factory.py` while preserving local `ollama` for development.
-
-- **Remote 384-Dimensional Embeddings**:
-  - Dedicated `OpenAIEmbeddingProvider` in `backend/app/embeddings/openai_provider.py` calling `/v1/embeddings` (`text-embedding-3-small` with `dimensions=384`).
-  - Perfectly matches the PostgreSQL `Vector(384)` schema without requiring 800MB PyTorch / sentence-transformers weights on serverless cold starts.
-  - Registered in `embeddings/factory.py` with automatic fallback and batching support.
-
-- **Serverless Cold Start Optimization & Production CORS**:
-  - `SKIP_DB_INIT` setting in application lifespan allows skipping table/extension checks on serverless cold starts once initialized.
-  - Dynamic CORS validator automatically includes `VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL` in allowed origins.
-
-- **Beginner-Friendly 12-Step Deployment Guide**:
-  - Detailed in [`docs/deployment.md`](docs/deployment.md#4-deploying-opensource-copilot-on-vercel-12-step-guide) with step-by-step instructions for database provisioning, environment configuration, Vercel dashboard setup, and verification.
-  - All legacy Render and Railway references purged in favor of Vercel.
-
-- **Automated Regression Test Suite**:
-  - 12 new unit tests in `backend/tests/test_vercel_providers.py` validating OpenAI LLM provider, embedding provider, vector normalization, batching, and factory resolution.
-  - **Total Test Suite**: 329 tests passing with 0 failures.
+### Step 1: Clone Repository
+```powershell
+git clone https://github.com/your-org/opencopilot.git
+cd opencopilot
+```
 
 ---
 
-## Limitations & System Boundaries
+### Step 2: Start PostgreSQL with pgvector via Docker
+Start the database service in the background:
+```powershell
+# Copy root environment template
+Copy-Item .env.example .env
 
-To maintain technical integrity and set clear expectations for evaluation and deployment, the following boundaries and constraints apply:
+# Start PostgreSQL + pgvector
+docker compose up -d postgres
+```
 
-1. **Repository Scope & Access**:
-   - Analyzes **public GitHub repositories** by default. Private repositories require an authenticated GitHub Personal Access Token (`GITHUB_TOKEN`) with `repo` scope.
-   - Large monorepos (>10,000 files) or single files exceeding 100 KB are bounded or truncated according to `MAX_TREE_ITEMS` and `MAX_FILE_SIZE_BYTES` configuration to preserve memory and performance.
-
-2. **GitHub API Rate Limits**:
-   - Unauthenticated GitHub API calls are subject to GitHub's rate limit of 60 requests per hour per IP.
-   - Supplying a personal access token via `GITHUB_TOKEN` increases this limit to 5,000 requests per hour.
-
-3. **Read-Only Operation & Code Execution**:
-   - OpenSource Copilot is strictly a **read-only architectural analysis and recommendation engine**.
-   - It **never** executes untrusted repository code, installs npm/pip packages from target repositories, or writes unauthorized commits/pull requests to user repositories.
-
-4. **Local LLM Hardware Requirements**:
-   - The default local AI provider runs `llama3.2:3b` via Ollama. This requires approximately 4 GB to 8 GB of available system RAM.
-   - If local Ollama is offline or unavailable, the application gracefully degrades to deterministic analysis mode, keyword-based RAG retrieval, and cached architecture cards without crashing.
-
-5. **RAG Context Boundedness**:
-   - Retrieval is bounded by character budgets (`AI_MAX_CONTEXT_CHARS`, default 60,000 chars) and file limits (`AI_MAX_FILES_IN_CONTEXT`, default 15) to prevent context window overflow and maintain low latency.
-   - Hallucinated source citations or non-retrieved line ranges generated by LLMs are strictly intercepted and filtered out before returning responses to the user.
+> **Windows Port Note**: If native Windows PostgreSQL is already using port `5432`, set `POSTGRES_PORT=5433` in your root `.env`. Docker will bind to host port `5433` without port conflicts.
 
 ---
 
-## Contributing & License
+### Step 3: Start Ollama and Pull the Local Model
+1. Open a new terminal and start the Ollama service:
+   ```powershell
+   ollama serve
+   ```
+2. Pull the default 3B parameter model (one-time download):
+   ```powershell
+   ollama pull llama3.2:3b
+   ```
+3. Verify the model is available:
+   ```powershell
+   ollama list
+   ```
 
-OpenSource Copilot is built for open-source developers worldwide. Contributions are welcome!
-Licensed under the [MIT License](LICENSE).
+---
 
+### Step 4: Configure and Start the Backend (FastAPI)
+1. Open a terminal and navigate to `backend/`:
+   ```powershell
+   cd backend
+   ```
+2. Create and activate a Python virtual environment:
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   ```
+3. Install backend dependencies:
+   ```powershell
+   pip install -r requirements.txt
+   ```
+4. Create your local environment file:
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+   *(Ensure `DATABASE_URL` in `backend/.env` points to port `5433` if you configured port 5433 in Step 2: `postgresql+asyncpg://postgres:postgres@localhost:5433/opencopilot`)*.
+5. Launch the FastAPI server:
+   ```powershell
+   python -m uvicorn app.main:app --reload --port 8000
+   ```
+6. Verify backend health in your browser or terminal:
+   ```powershell
+   curl http://localhost:8000/api/health
+   # Returns: {"status":"ok","service":"OpenSource Copilot API"}
+   ```
+   Interactive Swagger documentation: [http://localhost:8000/docs](http://localhost:8000/docs)
 
+---
+
+### Step 5: Configure and Start the Frontend (Next.js)
+1. Open a new terminal and navigate to `frontend/`:
+   ```powershell
+   cd frontend
+   ```
+2. Install npm dependencies:
+   ```powershell
+   npm install
+   ```
+3. Create your local environment file:
+   ```powershell
+   Copy-Item .env.example .env.local
+   ```
+4. Start the Next.js development server:
+   ```powershell
+   npm run dev
+   ```
+
+---
+
+### Step 6: Open the Application
+Open your browser at:
+```
+http://localhost:3000
+```
+Enter any public GitHub repository (e.g., `pallets/flask` or `tiangolo/fastapi`) and start analyzing!
+
+---
+
+## 11. Environment Variables
+
+The table below documents all environment variables used in local development. Never commit real credentials, passwords, or personal access tokens to version control.
+
+| Variable | Description | Default / Example Value |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | PostgreSQL connection URI (`asyncpg` driver) | `postgresql+asyncpg://postgres:postgres@localhost:5433/opencopilot` |
+| `POSTGRES_PORT` | Host port mapped to PostgreSQL container | `5433` (or `5432`) |
+| `POSTGRES_USER` | PostgreSQL username | `postgres` |
+| `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
+| `POSTGRES_DB` | PostgreSQL database name | `opencopilot` |
+| `GITHUB_TOKEN` | Optional GitHub Personal Access Token (PAT) to increase rate limit (60 -> 5,000 req/hr) | `""` or `ghp_...` |
+| `GITHUB_API_BASE_URL` | GitHub REST API endpoint | `https://api.github.com` |
+| `GITHUB_REQUEST_TIMEOUT` | Timeout in seconds for GitHub requests | `15` |
+| `LLM_PROVIDER` | Local AI engine | `ollama` |
+| `LLM_MODEL` | Ollama model identifier | `llama3.2:3b` |
+| `OLLAMA_BASE_URL` | Ollama HTTP API endpoint | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Model name identifier | `llama3.2:3b` |
+| `LLM_TEMPERATURE` | Sampling temperature for AI generation | `0.2` |
+| `LLM_MAX_OUTPUT_TOKENS` | Maximum output tokens generated | `4096` |
+| `LLM_REQUEST_TIMEOUT` | Generation timeout in seconds | `120.0` |
+| `EMBEDDING_PROVIDER` | Local embeddings engine | `sentence_transformers` |
+| `EMBEDDING_MODEL` | Sentence Transformers model name | `BAAI/bge-small-en-v1.5` |
+| `EMBEDDING_DIMENSION` | Vector dimensions (must match DB schema) | `384` |
+| `EMBEDDING_DEVICE` | Execution device for embeddings | `cpu` |
+| `AUTH_SECRET_KEY` | Secret key for signing JWT tokens | `dev-insecure-secret-key-change-in-production-min-32-chars-long` |
+| `AUTH_ALGORITHM` | Algorithm used for JWT signing | `HS256` |
+| `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | Token session validity in minutes | `10080` (7 days) |
+| `CORS_ORIGINS` | Allowed origins for CORS | `["http://localhost:3000","http://127.0.0.1:3000"]` |
+| `NEXT_PUBLIC_API_BASE_URL` | Frontend client backend endpoint | `http://localhost:8000/api` |
+
+---
+
+## 12. API Overview
+
+The backend exposes structured REST endpoints under the `/api` prefix:
+
+| Group | Method & Path | Description |
+| :--- | :--- | :--- |
+| **Health** | `GET /api/health` | Service status check and version confirmation |
+| **Auth** | `POST /api/v1/auth/register` | Register a new user account (201 Created) |
+| | `POST /api/v1/auth/login` | Authenticate user and issue JWT bearer token |
+| | `GET /api/v1/auth/me` | Retrieve profile of currently authenticated user |
+| | `POST /api/v1/auth/logout` | Revoke user session |
+| **Repositories** | `POST /api/v1/repositories/analyze` | Fetch repository metadata, stats, languages, and README |
+| | `POST /api/v1/repositories/tree` | Retrieve recursive Git tree and file classification |
+| | `POST /api/v1/repositories/file` | Retrieve raw or decoded content of a specific file |
+| | `POST /api/v1/repositories/ingest` | Ingest repository code documents into local database |
+| | `POST /api/v1/repositories/ai-analysis` | Generate grounded architectural analysis via Ollama |
+| **Profile** | `GET /api/v1/profile/skills` | Retrieve developer skill profile |
+| | `PUT /api/v1/profile/skills` | Update developer skill profile (stored in PostgreSQL) |
+| **RAG** | `POST /api/v1/rag/index` | Chunk and embed repository documents into pgvector |
+| | `POST /api/v1/rag/retrieve` | Retrieve top-k chunks matching a query |
+| | `POST /api/v1/rag/context` | Build bounded character-budget context window |
+| | `POST /api/v1/rag/vector-search` | Query 384-dimensional cosine similarity index |
+| **Chat** | `POST /api/v1/chat` | Grounded conversational Q&A with verified file citations |
+| **Issues** | `POST /api/v1/repositories/issues/analyze` | Inspect issue body, candidate files, and difficulty |
+| | `POST /api/v1/repositories/issues/recommend` | Score and rank issues matching developer skill profile |
+| **Guide** | `POST /api/v1/repositories/issues/contribution-guide` | Synthesize step-by-step contribution blueprint |
+
+---
+
+## 13. Security
+
+OpenSource Copilot is designed with layered defense-in-depth principles:
+
+- **Path Traversal Protection**: The `validate_repository_path()` utility blocks null bytes (`\x00`), path traversal sequences (`../`, `..\`, `..%2f`, double-encoded `%252f`), absolute filesystem paths (`/etc/passwd`, `C:\Windows`), and paths exceeding 500 characters.
+- **GitHub URL Validation**: Strict URL parsers validate domains and repository path patterns (`owner/repo`), rejecting invalid hostnames, IP addresses, and malicious query strings.
+- **Prompt Injection Defense**: All system prompts contain strict isolation rules. Untrusted repository files and issue bodies are demarcated inside `=== UNTRUSTED REPOSITORY CONTEXT ===` tags, directing the LLM to treat them strictly as data, never instructions.
+- **Bounded Inputs & Rate Ceilings**: Input schemas enforce character limits (questions: max 2,000 chars; search queries: max 1,000 chars; repo URLs: max 500 chars). Retrieval bounds (`1 <= top_k <= 20`) prevent memory exhaustion.
+- **Source Verification Guardrail**: LLM responses are checked against actually retrieved chunks. Hallucinated file citations or non-retrieved line ranges are stripped before responses reach the user.
+- **Sanitized Server Errors**: Uncaught exceptions are intercepted by a global exception handler. Full diagnostic traces are logged internally, while clients receive sanitized HTTP 500 error envelopes that never expose internal paths, passwords, or database schemas.
+
+---
+
+## 14. Testing & Verification
+
+The project is backed by comprehensive automated test suites across both backend and frontend.
+
+### Verified Test Results
+
+```bash
+# Backend Pytest Suite
+python -m pytest -q
+# Result: 329 passed, 4 warnings in 5.65s (0 failures)
+```
+
+```bash
+# Frontend Static Analysis & Type Checking
+npm run typecheck
+# Result: tsc --noEmit -> Exit code 0 (0 type errors)
+
+# Frontend ESLint
+npm run lint
+# Result: ✔ No ESLint warnings or errors (Exit code 0)
+
+# Frontend Production Build
+npm run build
+# Result: Compiled successfully, all 6 static routes generated (Exit code 0)
+```
+
+- **Backend Test Coverage**: 329 tests covering authentication, RAG chunking, pgvector retrieval, keyword fallback, GitHub API parsing, security hardening (26 attack vectors), and skill matching.
+- **Frontend Verification**: TypeScript in strict mode with zero type errors, clean ESLint validation, and successful Next.js production compilation.
+
+---
+
+## 15. Limitations
+
+To maintain realistic expectations, the following limitations currently apply:
+
+- **Local Ollama Dependency**: AI analysis, chat, and contribution guide generation require Ollama running locally with the `llama3.2:3b` model downloaded. If Ollama is offline, the application gracefully degrades to deterministic analysis mode and keyword search.
+- **GitHub API Rate Limits**: Unauthenticated requests to GitHub are capped at 60 requests per hour per IP. Adding a `GITHUB_TOKEN` in `.env` increases this threshold to 5,000 requests per hour.
+- **Local Infrastructure Requirements**: Requires Docker to run PostgreSQL with the `pgvector` extension and sufficient system RAM (8 GB recommended) for running local LLM inference.
+- **Read-Only Operation**: OpenSource Copilot strictly analyzes code and recommends solutions. It **does not** create pull requests, commit code to remote repositories, or execute untrusted code locally.
+
+---
+
+## 16. Future Enhancements
+
+Planned future improvements include:
+- **Cloud Deployment Profiles**: Optional cloud infrastructure templates for teams desiring hosted deployments.
+- **Multi-Language AST Chunking**: Deep AST chunkers for Go, Rust, and TypeScript in addition to Python, Markdown, and YAML.
+- **Enhanced Issue Ranking**: Semantic vector search directly over issue descriptions for nuanced topic-based discovery.
+- **GitHub PR Workflow Integration**: Optional capability to draft pull request descriptions and export contribution checklists directly to GitHub.
+- **Additional LLM Providers**: Expand the provider interface with configurable hosted providers while retaining Ollama as the local default.
+
+---
+
+## 17. License
+
+OpenSource Copilot is open-source software licensed under the [MIT License](LICENSE).
+
+---
+
+## 18. Complete System Flow
+
+The diagram below provides a complete, high-level view of the end-to-end data flow through all layers of OpenSource Copilot:
+
+```mermaid
+flowchart TD
+    subgraph UserInteraction["User Interaction"]
+        Dev["Developer"]
+    end
+
+    subgraph ClientLayer["Frontend Client (Port 3000)"]
+        UI["Next.js 14 Web Interface"]
+    end
+
+    subgraph APILayer["FastAPI Gateway (Port 8000)"]
+        API["FastAPI Application"]
+    end
+
+    subgraph ExternalServices["External APIs"]
+        GitHub["GitHub REST API"]
+    end
+
+    subgraph IngestionPipeline["Code Ingestion & Indexing"]
+        Ingestion["Source Ingestion Service"]
+        Chunker["AST Semantic Chunker"]
+        Embedder["Sentence Transformers\n(384-dim CPU)"]
+    end
+
+    subgraph Storage["Persistence Layer"]
+        DB[("PostgreSQL 16 + pgvector\n(Port 5433)")]
+    end
+
+    subgraph LocalInference["Local AI Inference"]
+        Ollama["Local Ollama Engine\n(llama3.2:3b)"]
+    end
+
+    subgraph AIFeatures["Output & Reasoning Engine"]
+        ArchOut["Architecture Breakdown"]
+        ChatOut["RAG Grounded Chat"]
+        IssueOut["Skill-Matched Issues"]
+        GuideOut["Contribution Guide"]
+    end
+
+    Dev -->|"Enters Repo URL / Query"| UI
+    UI -->|"HTTP Request"| API
+    
+    API -->|"Fetch Tree, Files, Issues"| GitHub
+    GitHub -->|"Raw Repo Data"| API
+    
+    API -->|"Process Code"| Ingestion
+    Ingestion --> Chunker
+    Chunker --> Embedder
+    Embedder -->|"Store Vectors"| DB
+    
+    API -->|"Retrieve Context"| DB
+    DB -->|"Top-k Chunks"| API
+    
+    API -->|"Bounded Prompt"| Ollama
+    Ollama -->|"Inference Result"| API
+    
+    API --> ArchOut
+    API --> ChatOut
+    API --> IssueOut
+    API --> GuideOut
+    
+    ArchOut --> UI
+    ChatOut --> UI
+    IssueOut --> UI
+    GuideOut --> UI
+    UI -->|"Displays Insights & Guides"| Dev
+```
