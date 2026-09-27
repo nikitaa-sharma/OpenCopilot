@@ -37,6 +37,7 @@ Finding where and how to start contributing to an open-source project can be dau
 | **Security & Reliability Hardening** | ✅ **Implemented (Phase 13)** | Path traversal defense (`validate_repository_path`), prompt injection defense tags, bounded schemas, global sanitized error handling, 57 security tests covering 26 attack vectors (317 total tests). |
 | **Docker, CI/CD & Deployment** | ✅ **Implemented (Phase 14)** | Multi-stage production Dockerfiles, 4-tier Docker Compose orchestration (`postgres` + `pgvector`, `ollama`, `backend`, `frontend`), automated GitHub Actions CI/CD pipeline, and complete cloud deployment guides. |
 | **Final UI/UX & Dark/Light Mode** | ✅ **Implemented (Phase 15)** | Seamless dark/light theme switching with `next-themes`, CSS token system, WCAG-compliant contrast, responsive navigation, portfolio-ready documentation, and complete verification suite. |
+| **Vercel Monorepo Deployment & Hosted AI** | ✅ **Implemented (Phase 16)** | Unified deployment of Next.js frontend and FastAPI backend via Vercel Services & edge rewrites. Hosted OpenAI-compatible LLM provider (supporting OpenAI & Groq), remote 384-dimension OpenAI embedding provider (`text-embedding-3-small`), automated Vercel CORS configuration, cold-start DB optimization (`SKIP_DB_INIT`), and 12-step deployment guide. |
 
 
 ---
@@ -63,79 +64,101 @@ Finding where and how to start contributing to an open-source project can be dau
 
 ## System Architecture
 
-```text
-                               ┌─────────────────────────────┐
-                               │   Next.js 14 Web Frontend   │
-                               │  (TypeScript, Tailwind CSS, │
-                               │   next-themes, Lucide UI)   │
-                               └──────────────┬──────────────┘
-                                              │ HTTP / JSON
-                                              ▼
-                               ┌─────────────────────────────┐
-                               │     FastAPI API Gateway     │
-                               │ (Dependency Injection, CORS,│
-                               │  Sanitized Error Handlers)  │
-                               └───┬──────────┬──────────┬───┘
-                                   │          │          │
-         ┌─────────────────────────┘          │          └─────────────────────────┐
-         ▼                                    ▼                                    ▼
-┌──────────────────┐               ┌──────────────────┐               ┌──────────────────┐
-│  GitHub Service  │               │ RAG & Embeddings │               │   LLM Service    │
-│  (httpx Client,  │               │ (pgvector + CPU  │               │ (Ollama Provider,│
-│   Rate Limiter,  │               │  bge-small-en,   │               │  Bounded Context │
-│  Tree Ingestion) │               │ Keyword Fallback)│               │ Prompt Injection)│
-└────────┬─────────┘               └────────┬─────────┘               └────────┬─────────┘
-         │ HTTPS                            │ SQL / Vector                     │ HTTP
-         ▼                                  ▼                                  ▼
-┌──────────────────┐               ┌──────────────────┐               ┌──────────────────┐
-│  GitHub REST API │               │    PostgreSQL    │               │  Local Ollama /  │
-│  (api.github.com)│               │  + pgvector EXT  │               │ llama3.2:3b Model│
-└──────────────────┘               └──────────────────┘               └──────────────────┘
+OpenSource Copilot is built as a modular monorepo uniting a Next.js 14 frontend and a FastAPI backend, orchestrated locally via Docker Compose or in production via Vercel Services.
+
+```mermaid
+graph TD
+    subgraph ClientLayer["Client Layer"]
+        Browser["User Web Browser\n(Desktop, Tablet, Mobile)"]
+    end
+
+    subgraph VercelDeployment["Vercel Monorepo Deployment / Local Dev"]
+        EdgeProxy["Edge Gateway / Rewrites\n(vercel.json / Local Proxy)"]
+        Frontend["Next.js 14 Frontend Service\n(React, TypeScript, Tailwind, next-themes)"]
+        Backend["FastAPI Backend Service\n(Python 3.10+, asyncpg, Pydantic v2)"]
+    end
+
+    subgraph DataAndAILayer["Data Persistence & External Services"]
+        GitHubAPI["GitHub REST API\n(api.github.com)"]
+        PostgresDB[("PostgreSQL 16 + pgvector\n(Users, Profiles, 384-dim Embeddings)")]
+        LLMProvider["AI / LLM Engine\n(Ollama Local / Groq / OpenAI)"]
+        EmbedProvider["Embedding Provider\n(Local BGE-Small / OpenAI text-embedding-3-small)"]
+    end
+
+    Browser -->|"HTTPS Requests\n(Unified Domain)"| EdgeProxy
+    EdgeProxy -->|"/* (Pages & Static Assets)"| Frontend
+    EdgeProxy -->|"/api/* & /docs"| Backend
+    Frontend -->|"Client Fetch /api/*"| EdgeProxy
+
+    Backend -->|"Metadata, Trees & File Content"| GitHubAPI
+    Backend -->|"Vector Similarity & Schema Sync"| PostgresDB
+    Backend -->|"Chat, Architecture & Contribution Guides"| LLMProvider
+    Backend -->|"384-dim Normalized Embeddings"| EmbedProvider
 ```
 
 ---
 
-## RAG Retrieval Pipeline Flow
+## RAG Retrieval Pipeline & Source Verification Flow
 
-```text
-[Repository Source Code / Docs]
-               │
-               ▼
-[Semantic Language Chunker] (Python AST, Markdown, YAML)
-               │
-               ▼
-[SHA-256 Incremental Hashing] (Avoid re-indexing unchanged chunks)
-               │
-               ├─────────────────────────────────────────┐
-               ▼                                         ▼
-[Vector Embeddings (bge-small-en-v1.5)]         [Keyword Inverted Index]
-               │                                         │
-               ▼                                         ▼
-[pgvector Cosine Similarity Search]             [Exact & Subword Match]
-               │                                         │
-               └────────────────────┬────────────────────┘
-                                    │
-                                    ▼
-                        [Automatic Fallback Engine]
-                    (pgvector -> Keyword if unindexed)
-                                    │
-                                    ▼
-                        [Bounded Context Builder]
-                     (Character budget & truncation)
-                                    │
-                                    ▼
-                     [Grounded Prompt Construction]
-                    (Untrusted context isolation tag)
-                                    │
-                                    ▼
-                        [Ollama LLM Generation]
-                                    │
-                                    ▼
-                     [Source Verification Guardrail]
-                (Filter out non-retrieved / phantom citations)
-                                    │
-                                    ▼
-              [Verified Structured Answer with Evidence Cards]
+The Retrieval-Augmented Generation (RAG) subsystem extracts, indexes, and retrieves codebase knowledge with deterministic guardrails that prevent hallucinated file citations.
+
+```mermaid
+flowchart TD
+    subgraph IndexingPhase["1. Code Ingestion & Vector Indexing Phase"]
+        RawCode["Repository Code & Docs\n(Python, Markdown, YAML)"] --> SafetyFilter["Safety Filter & File Scanner\n(Limits: 100 files, 100 KB/file)"]
+        SafetyFilter --> ASTChunker["Semantic Language Chunker\n(AST boundary & line-aware chunking)"]
+        ASTChunker --> ChunkHash["SHA-256 Incremental Hasher\n(Skip unchanged chunk re-embedding)"]
+        ChunkHash --> EmbedModel["Embedding Provider\n(bge-small-en-v1.5 or text-embedding-3-small)"]
+        EmbedModel --> VectorStore[("pgvector Database\n(384-dimensional cosine index)")]
+    end
+
+    subgraph RetrievalPhase["2. Hybrid Retrieval & Fallback Phase"]
+        UserQuestion["Developer Query / Question"] --> QueryEmbed["Generate Query Vector"]
+        QueryEmbed --> VectorSearch["pgvector Cosine Similarity Search\n(Cosine distance threshold <= 0.8)"]
+        VectorSearch -->|"Fallback if unindexed"| KeywordSearch["Keyword & Subword Matcher\n(Path & filename boosting)"]
+        VectorSearch --> ChunksFound["Ranked Candidate Chunks"]
+        KeywordSearch --> ChunksFound
+    end
+
+    subgraph GenerationPhase["3. Grounded Inference & Verification Phase"]
+        ChunksFound --> BoundedContext["Bounded Context Builder\n(Character budget: 12,000 chars)"]
+        UserQuestion --> BoundedContext
+        BoundedContext --> Demarcation["Prompt Construction\n(Demarcated with === UNTRUSTED CONTEXT ===)"]
+        Demarcation --> LLMGenerate["LLM Inference\n(Ollama / Groq / OpenAI)"]
+        LLMGenerate --> RawAnswer["Raw AI Generation"]
+        RawAnswer --> CitationFilter["Citation Verification Guardrail\n(Strip unretrieved / hallucinated citations)"]
+        ChunksFound -.->|"Validate against actual chunks"| CitationFilter
+        CitationFilter --> VerifiedResponse["Verified Answer with Evidence Cards"]
+    end
+```
+
+---
+
+## End-to-End User Experience & Interaction Flow
+
+```mermaid
+flowchart TD
+    Start(["Developer Lands on OpenSource Copilot"]) --> InputRepo["Enter Public GitHub Repository URL\n(e.g., pallets/flask)"]
+    
+    InputRepo --> ValidateURL{"Valid GitHub URL?"}
+    ValidateURL -- No --> ShowURLError["Display Friendly Error\n(Invalid format / unsupported host)"]
+    ValidateURL -- Yes --> FetchRepoData["Fetch Repository Metadata & Tree\n(GitHub REST API)"]
+    
+    FetchRepoData --> DisplayOverview["Display Repository Overview Dashboard\n(Stars, Forks, Language Breakdown, Topics, Activity)"]
+    DisplayOverview --> FeatureChoice{"Choose Action"}
+    
+    FeatureChoice -->|"AI Analysis"| RunAIAnalysis["Generate Architectural Overview\n(Tech stack, key components, entrypoints)"]
+    FeatureChoice -->|"Explore Issues"| BrowseIssues["Fetch Open GitHub Issues\n(Filter PRs, classify labels & difficulty)"]
+    FeatureChoice -->|"Repository Chat"| StartRAGChat["Ask Questions About Codebase\n(pgvector semantic search + verified citations)"]
+    FeatureChoice -->|"Developer Profile"| EditProfile["Configure Developer Skills\n(Languages, frameworks, experience level)"]
+    
+    BrowseIssues --> MatchIssues["Match Issues Against Skill Profile\n(Match % score, skill gaps & learning opportunities)"]
+    MatchIssues --> SelectIssue["Select Target Issue"]
+    SelectIssue --> GenGuide["Generate Step-by-Step Contribution Guide\n(Files to inspect, testing plan, PR checklist)"]
+    
+    RunAIAnalysis --> UserSuccess(["Ready to Contribute"])
+    StartRAGChat --> UserSuccess
+    GenGuide --> UserSuccess
 ```
 
 ---
@@ -174,12 +197,15 @@ opensource-copilot/
 │   │   ├── schemas/              # Pydantic data schemas
 │   │   ├── services/             # Business logic, GitHub service, file filter
 │   │   ├── repositories/         # Database access repository pattern
-│   │   └── main.py               # FastAPI application entrypoint
-│   ├── tests/                    # Backend automated tests (317 tests)
+│   │   └── main.py               # FastAPI application factory
+│   ├── main.py                   # Vercel and serverless entrypoint module
+│   ├── tests/                    # Backend automated tests (329 tests)
 │   └── requirements.txt
 │
 ├── docs/                         # Technical documentation & architecture
-│   └── architecture.md
+│   ├── architecture.md
+│   └── deployment.md
+├── vercel.json                   # Vercel Monorepo Services & Rewrites configuration
 ├── .gitignore                    # Monorepo ignore rules
 ├── .env.example                  # Environment template
 └── README.md
@@ -337,25 +363,37 @@ Detailed 12-step instructions and troubleshooting are available in [docs/deploym
 
 | Variable | Description | Default / Example |
 | :--- | :--- | :--- |
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://postgres:postgres@localhost:5432/opencopilot` |
-| `GITHUB_TOKEN` | GitHub Personal Access Token (optional, for higher rate limits) | `ghp_...` or empty |
+| `DATABASE_URL` | PostgreSQL connection string with `asyncpg` driver | `postgresql+asyncpg://postgres:postgres@localhost:5432/opencopilot` |
+| `AUTH_SECRET_KEY` | Secret key for signing JWT tokens (min 32 characters in production) | `dev-insecure-secret-key-change-in-production-min-32-chars-long` |
+| `AUTH_ALGORITHM` | Algorithm used for JWT token signing | `HS256` |
+| `AUTH_ACCESS_TOKEN_EXPIRE_MINUTES` | Token session validity in minutes | `10080` (7 days) |
+| `GITHUB_TOKEN` | GitHub Personal Access Token (optional, raises rate limit to 5,000 req/hr) | `ghp_...` or empty |
 | `GITHUB_API_BASE_URL` | Base URL for GitHub REST API | `https://api.github.com` |
 | `GITHUB_REQUEST_TIMEOUT` | Timeout in seconds for GitHub API requests | `15` |
 | `MAX_TREE_ITEMS` | Max items processed from recursive Git tree | `10000` |
 | `MAX_SOURCE_FILES` | Max source/doc files ingested in batch operation | `100` |
 | `MAX_FILE_SIZE_BYTES` | Max size per individual file for content retrieval | `102400` (100 KB) |
 | `MAX_TOTAL_CODE_BYTES` | Max total code ingested per repository | `2097152` (2 MB) |
-| `LLM_PROVIDER` | Replaceable AI provider (`ollama`, `openai`, `anthropic`, `local`) | `ollama` |
+| `LLM_PROVIDER` | AI provider (`ollama`, `openai`, `groq`) | `ollama` (local) / `openai` / `groq` |
+| `LLM_MODEL` | Model name identifier | `llama3.2:3b` / `gpt-4o-mini` / `llama-3.3-70b-versatile` |
+| `LLM_API_KEY` | API key for hosted providers (OpenAI or Groq) | `""` (local) or `sk-...` / `gsk_...` |
+| `LLM_BASE_URL` | Base URL for LLM API | `http://localhost:11434` / `https://api.openai.com/v1` |
 | `OLLAMA_BASE_URL` | Base URL for local Ollama HTTP API | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Model name identifier in Ollama | `llama3.2:3b` |
 | `LLM_TEMPERATURE` | Sampling temperature for AI generation | `0.2` |
 | `LLM_MAX_OUTPUT_TOKENS` | Max output tokens generated by LLM | `4096` |
 | `LLM_REQUEST_TIMEOUT` | Timeout in seconds for LLM generation | `120.0` |
+| `EMBEDDING_PROVIDER` | Embedding engine (`sentence_transformers` local CPU or `openai` remote) | `sentence_transformers` |
+| `EMBEDDING_MODEL` | Embedding model identifier | `BAAI/bge-small-en-v1.5` / `text-embedding-3-small` |
+| `EMBEDDING_DIMENSION` | Vector dimension produced (must match DB schema) | `384` |
+| `EMBEDDING_API_KEY` | API key for remote OpenAI embeddings | `""` or `sk-...` |
+| `EMBEDDING_BASE_URL` | Custom base URL for embeddings API | `""` or `https://api.openai.com/v1` |
+| `SKIP_DB_INIT` | Skip database schema auto-init on cold starts if already migrated | `false` |
 | `AI_MAX_CONTEXT_CHARS` | Maximum character budget for AI context | `60000` |
 | `AI_MAX_FILES_IN_CONTEXT` | Maximum files included in AI context | `15` |
 | `AI_MAX_FILE_CHARS` | Maximum character limit per individual file before truncation | `6000` |
-| `CORS_ORIGINS` | Allowed frontend origins for CORS | `["http://localhost:3000"]` |
-| `NEXT_PUBLIC_API_BASE_URL` | API endpoint URL accessible from frontend | `http://localhost:8000/api` |
+| `CORS_ORIGINS` | Allowed frontend origins (JSON array or comma-separated) | `["http://localhost:3000"]` |
+| `NEXT_PUBLIC_API_BASE_URL` | API endpoint URL (defaults to relative `/api` on Vercel) | `http://localhost:8000/api` |
 
 
 ---
@@ -364,6 +402,41 @@ Detailed 12-step instructions and troubleshooting are available in [docs/deploym
 
 Phase 10 provides transparent, personalized issue recommendations based on a lightweight developer skill profile:
 
+```mermaid
+flowchart LR
+    subgraph ProfileInput["Developer Profile"]
+        DeclaredSkills["Developer Skills\n(e.g., Python, React, Docker)"]
+        ExpLevel["Experience Level\n(Beginner / Intermediate / Advanced)"]
+        DeclaredSkills --> Normalizer["Skill Normalizer\n(Alias mapping & deduplication)"]
+        Normalizer --> StoredProfile[("PostgreSQL\ndeveloper_profiles")]
+        ExpLevel --> StoredProfile
+    end
+
+    subgraph IssueAnalysis["Issue Requirements"]
+        GitHubIssue["GitHub Issue Body & Comments"] --> IssueAnalyzer["AI Issue Classifier"]
+        IssueAnalyzer --> ReqSkills["Required Skills & Tech"]
+        IssueAnalyzer --> CandidateFiles["Candidate Files to Modify"]
+        IssueAnalyzer --> AIDifficulty["AI Difficulty Estimate\n(Beginner / Interm / Advanced)"]
+    end
+
+    subgraph MatchingAlgorithm["Skill Matching Algorithm"]
+        StoredProfile --> MatchEngine["Deterministic Matcher"]
+        ReqSkills --> MatchEngine
+        CandidateFiles --> MatchEngine
+        
+        MatchEngine --> MatchScore["Skill Match Score %\n(Overlapping skills / required skills)"]
+        MatchEngine --> SkillGaps["Skill Gaps\n(Missing technologies needed)"]
+        MatchEngine --> Opportunities["Learning Opportunities\n(New skills to gain)"]
+    end
+
+    subgraph OutputView["Personalized Issue Feed"]
+        MatchScore --> RankedCard["Issue Recommendation Card\n(Sorted by Match % Descending)"]
+        SkillGaps --> RankedCard
+        Opportunities --> RankedCard
+        AIDifficulty --> RankedCard
+    end
+```
+
 - **Developer Skill Profile**: Captures `programming_languages`, `frameworks`, `tools`, `domains`, `experience_level`, and `interests`.
 - **Deterministic Skill Normalization**: Normalizes aliases (e.g., `"js"` → `"JavaScript"`, `"postgres"` → `"PostgreSQL"`) conservatively and preserves unknown skills without discarding them.
 - **Skill Match vs. AI Difficulty Estimate**:
@@ -371,7 +444,7 @@ Phase 10 provides transparent, personalized issue recommendations based on a lig
   - **AI Difficulty Estimate** (Beginner, Intermediate, Advanced, Unknown): Intrinsic technical complexity estimated by AI independently of the user's skill set.
 - **Transparent Match Reasons & Skill Gaps**: Explains *why* each issue matched (required skill overlap, candidate file languages, repo technology alignment), clearly indicates missing skills (*skill gaps*), and highlights constructive *learning opportunities*.
 - **Deterministic Recommendation Sorting**: Ordered by match score descending, with issue number ascending as a deterministic tie-breaker. Strictly avoids subjective labeling such as "best", "winner", or "easiest".
-- **Current Profile Limitations**: Profile state is managed in-memory per session with local storage synchronization. No authentication or persistent user database accounts are introduced in Phase 10.
+- **Profile Persistence**: Synchronized in PostgreSQL via `developer_profiles` table when authenticated, with transparent local storage fallback for unauthenticated users.
 
 ---
 
@@ -455,7 +528,7 @@ Phase 13 hardens OpenSource Copilot across backend services, API endpoints, and 
     - Malformed LLM JSON recovery.
     - External service resilience (Ollama timeout/offline, GitHub 403/404/timeouts).
     - Database failure response sanitization.
-  - **Total Backend Test Coverage**: 317 tests passing with 0 failures.
+  - **Total Backend Test Coverage**: 329 tests passing with 0 failures.
 
 ---
 
@@ -475,14 +548,14 @@ Phase 14 provides complete, reproducible containerization, multi-service orchest
   - **Isolated Bridge Network**: `opencopilot_net` decouples internal container communication from host port exposure.
 
 - **Continuous Integration Pipeline (`.github/workflows/ci.yml`)**:
-  - **Backend Job**: Automatically spins up a PostgreSQL + pgvector service container, sets up Python 3.11 with pip caching, and runs the complete 317-test Pytest suite on every push and pull request.
+  - **Backend Job**: Automatically spins up a PostgreSQL + pgvector service container, sets up Python 3.11 with pip caching, and runs the complete Pytest suite on every push and pull request.
   - **Frontend Job**: Sets up Node.js 20 with npm caching, verifies strict TypeScript typing (`tsc --noEmit`), runs ESLint, and compiles a Next.js production build.
   - **Docker Validation Job**: Validates `docker compose config` syntax and verifies buildability of backend and frontend images.
   - **Secret Hygiene Audit**: Verifies that no development `.env` files with credentials or keys are committed to Git.
 
 - **Production & Cloud Deployment Guide**:
   - Detailed in [`docs/deployment.md`](docs/deployment.md).
-  - Includes local Docker Compose setup, hybrid local-Docker workflows, step-by-step free/low-cost cloud deployment (Vercel + Render + Supabase/Neon + Groq), and transparent hardware analyses regarding LLM memory constraints on cloud free tiers.
+  - Includes local Docker Compose setup, hybrid local-Docker workflows, unified Vercel monorepo deployment with cloud PostgreSQL (`pgvector`), and hosted AI inference with Groq / OpenAI.
 
 ---
 
@@ -504,6 +577,40 @@ Phase 15 elevates OpenSource Copilot to a production-grade, portfolio-ready deve
   - Removal of legacy phase placeholders and developer debug buttons.
   - Streamlined empty and loading states with actionable suggestions and sample repository quick-picks.
   - Responsive design optimized across mobile (375px), tablet (768px), and desktop (1280px+) viewport breakpoints.
+
+---
+
+## Vercel Unified Monorepo Deployment & Hosted AI (Phase 16)
+
+Phase 16 configures OpenSource Copilot for seamless, one-click production deployment on **Vercel** as a unified monorepo:
+
+- **Unified Vercel Services Architecture**:
+  - `vercel.json` configures the Next.js frontend (`frontend/`) and FastAPI backend (`backend/`) as native services in a single Vercel project.
+  - Edge path rewrites route `/api/*`, `/docs`, and `/openapi.json` to the FastAPI service and all other requests (`/*`) to the Next.js service.
+  - Same-origin client requests eliminate CORS complexity in production while strictly guarding against unauthorized cross-origin requests.
+  - Top-level `backend/main.py` entrypoint exporting `app` for serverless runners.
+
+- **Hosted OpenAI-Compatible LLM Provider**:
+  - Production-ready `OpenAICompatibleProvider` in `backend/app/services/llm_provider.py` with asynchronous `httpx` execution, structured JSON mode (`response_format={"type": "json_object"}`), configurable timeouts, and error handling.
+  - Supports **Groq** (`llama-3.3-70b-versatile` on generous free tier) and **OpenAI** (`gpt-4o-mini`).
+  - Seamlessly resolved by `llm_factory.py` while preserving local `ollama` for development.
+
+- **Remote 384-Dimensional Embeddings**:
+  - Dedicated `OpenAIEmbeddingProvider` in `backend/app/embeddings/openai_provider.py` calling `/v1/embeddings` (`text-embedding-3-small` with `dimensions=384`).
+  - Perfectly matches the PostgreSQL `Vector(384)` schema without requiring 800MB PyTorch / sentence-transformers weights on serverless cold starts.
+  - Registered in `embeddings/factory.py` with automatic fallback and batching support.
+
+- **Serverless Cold Start Optimization & Production CORS**:
+  - `SKIP_DB_INIT` setting in application lifespan allows skipping table/extension checks on serverless cold starts once initialized.
+  - Dynamic CORS validator automatically includes `VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL` in allowed origins.
+
+- **Beginner-Friendly 12-Step Deployment Guide**:
+  - Detailed in [`docs/deployment.md`](docs/deployment.md#4-deploying-opensource-copilot-on-vercel-12-step-guide) with step-by-step instructions for database provisioning, environment configuration, Vercel dashboard setup, and verification.
+  - All legacy Render and Railway references purged in favor of Vercel.
+
+- **Automated Regression Test Suite**:
+  - 12 new unit tests in `backend/tests/test_vercel_providers.py` validating OpenAI LLM provider, embedding provider, vector normalization, batching, and factory resolution.
+  - **Total Test Suite**: 329 tests passing with 0 failures.
 
 ---
 
