@@ -1,0 +1,124 @@
+# ==============================================================================
+# OpenSource Copilot - Multi-Service Docker Compose Configuration
+# ==============================================================================
+# Services:
+#   1. postgres: PostgreSQL 16 with pgvector extension
+#   2. ollama: Local LLM runtime service
+#   3. backend: FastAPI application server
+#   4. frontend: Next.js user interface
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL with pgvector (Database)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: opencopilot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-opencopilot}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-opencopilot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - opencopilot_net
+
+  # ----------------------------------------------------------------------------
+  # 2. Ollama (Local LLM Runtime)
+  # ----------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: opencopilot_ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - opencopilot_net
+
+  # ----------------------------------------------------------------------------
+  # 3. Backend (FastAPI API Server)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: opencopilot_backend
+    restart: unless-stopped
+    environment:
+      # Container-to-container database connection
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-opencopilot}
+      # Container-to-container LLM connection
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      # Optional external tokens & secrets
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-dev-insecure-secret-key-change-in-production-min-32-chars-long}
+      # Application configuration
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - opencopilot_net
+
+  # ----------------------------------------------------------------------------
+  # 4. Frontend (Next.js Web UI)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Browser-to-backend URL accessible from user client machine
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+    container_name: opencopilot_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - opencopilot_net
+
+# ------------------------------------------------------------------------------
+# Persistent Volumes & Network Definitions
+# ------------------------------------------------------------------------------
+volumes:
+  pgvector_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  opencopilot_net:
+    driver: bridge

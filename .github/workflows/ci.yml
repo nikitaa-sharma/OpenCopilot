@@ -1,0 +1,144 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # 1. Backend Verification & Tests
+  # ----------------------------------------------------------------------------
+  backend-tests:
+    name: Backend Test Suite (Python 3.11 + pgvector)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: opencopilot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Pytest Test Suite
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/opencopilot
+          AUTH_SECRET_KEY: test-secret-key-for-ci-pipeline-minimum-32-chars-long
+          ENVIRONMENT: testing
+          LLM_PROVIDER: ollama
+          LLM_BASE_URL: http://localhost:11434
+          OLLAMA_BASE_URL: http://localhost:11434
+        run: |
+          cd backend
+          pytest -v --tb=short
+
+  # ----------------------------------------------------------------------------
+  # 2. Frontend Verification & Build
+  # ----------------------------------------------------------------------------
+  frontend-checks:
+    name: Frontend Checks (TypeScript, ESLint, Next.js Build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: TypeScript Typecheck
+        run: |
+          cd frontend
+          npm run typecheck
+
+      - name: ESLint
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Next.js Production Build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+        run: |
+          cd frontend
+          npm run build
+
+  # ----------------------------------------------------------------------------
+  # 3. Docker Compose & Container Image Validation
+  # ----------------------------------------------------------------------------
+  docker-validation:
+    name: Docker Compose & Image Builds
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose Configuration
+        run: |
+          docker compose config
+
+      - name: Build Backend Docker Image
+        run: |
+          docker build -t opencopilot-backend:test ./backend
+
+      - name: Build Frontend Docker Image
+        run: |
+          docker build -t opencopilot-frontend:test --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api ./frontend
+
+  # ----------------------------------------------------------------------------
+  # 4. Security & Secret Hygiene Audit
+  # ----------------------------------------------------------------------------
+  security-audit:
+    name: Secret & Credential Safety Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for committed sensitive files
+        run: |
+          if [ -f backend/.env ] || [ -f frontend/.env.local ]; then
+            echo "::error::Found committed environment file with potential secrets!"
+            exit 1
+          fi
+          echo "No committed local .env files found."
