@@ -66,40 +66,18 @@ The following flowchart illustrates the complete operational workflow from repos
 
 ```mermaid
 flowchart TD
-    User(["Developer"]) --> EnterRepo["Enter GitHub Repository URL\n(e.g., pallets/flask)"]
-    EnterRepo --> GitHubAPI["GitHub REST API\n(api.github.com)"]
+    User(["Developer"]) --> Input["1. Enter GitHub Repository URL"]
+    Input --> GitHubAPI["2. Ingest Repo via GitHub REST API\n(Metadata, README, Issues & Code)"]
+    GitHubAPI --> Embeddings["3. Local Embeddings & Vector Indexing\n(Sentence Transformers + pgvector)"]
     
-    GitHubAPI --> RepoData["Repository Metadata, README,\nOpen Issues & Git File Tree"]
-    RepoData --> IngestFilter["Source Ingestion & Safety Filter\n(Limit: 100 files, 100 KB/file)"]
+    Embeddings --> RAG["4. RAG Retrieval & Context Builder"]
+    Profile["Developer Skill Profile"] --> Matcher["Deterministic Skill Matcher"]
     
-    IngestFilter --> Chunker["Language-Aware Chunker\n(AST & Line Boundaries)"]
-    Chunker --> Hasher["SHA-256 Incremental Hasher\n(Skip Unchanged Chunks)"]
-    Hasher --> Embedder["Sentence Transformers\n(BAAI/bge-small-en-v1.5)"]
+    RAG --> AI["5. Local AI Reasoning (Ollama llama3.2:3b)"]
     
-    Embedder --> PGVector[("PostgreSQL 16 + pgvector\n(384-dim Embeddings)")]
-    
-    DevProfile["Developer Skill Profile\n(Languages, Tools, Level)"] --> SkillMatcher["Deterministic Skill Matcher"]
-    RepoData -.->|"Issue Requirements"| SkillMatcher
-    SkillMatcher --> RecIssues["Personalized Recommended Issues\n(Match Score %, Skill Gaps)"]
-    
-    UserQuery["User Query / Selected Issue"] --> RAGRetrieval["Hybrid RAG Retrieval\n(pgvector Cosine Search + Keyword Fallback)"]
-    PGVector --> RAGRetrieval
-    
-    RAGRetrieval --> ContextBuilder["Bounded Context Builder\n(=== UNTRUSTED CONTEXT ===)"]
-    ContextBuilder --> OllamaLLM["Local Ollama LLM\n(llama3.2:3b)"]
-    
-    OllamaLLM --> Guardrail["Citation Verification Guardrail\n(Strip Non-Retrieved Sources)"]
-    
-    Guardrail --> FeaturesOut{"Output Generation"}
-    FeaturesOut --> ArchAnalysis["Architectural Overview Dashboard"]
-    FeaturesOut --> GroundedChat["Grounded Codebase Chat with Citations"]
-    FeaturesOut --> ContribGuide["Step-by-Step Contribution Guide"]
-    
-    RecIssues --> FrontendView["Next.js Responsive Web UI"]
-    ArchAnalysis --> FrontendView
-    GroundedChat --> FrontendView
-    ContribGuide --> FrontendView
-    FrontendView --> User
+    AI --> Dashboard["Interactive Dashboard\n• Structure Explainer & Architecture\n• Skill-Matched Issue Recommendations\n• Grounded Q&A Chat with Citations\n• Step-by-Step Contribution Guides"]
+    Matcher --> Dashboard
+    Dashboard --> User
 ```
 
 ---
@@ -110,36 +88,13 @@ OpenSource Copilot follows a modular, decoupled architecture where the Next.js f
 
 ```mermaid
 flowchart TD
-    subgraph FrontendLayer["Presentation Layer (Port 3000)"]
-        NextJS["Next.js 14 App Router\n(React, TypeScript, Tailwind CSS, next-themes)"]
-    end
-
-    subgraph BackendLayer["API & Application Layer (Port 8000)"]
-        FastAPI["FastAPI REST API Gateway\n(Dependency Injection, CORS, Error Sanitization)"]
-        
-        subgraph ServicesLayer["Domain Services Layer"]
-            GitHubService["GitHub Service\n(httpx, Tree Traversal, Rate Limiter)"]
-            LLMService["AI / LLM Service\n(Ollama Provider, Prompt Builder)"]
-            IssueService["Issue Analysis Service\n(Difficulty Estimator, Context Builder)"]
-            SkillService["Skill Matching Service\n(Normalizer, Score Calculator)"]
-            GuideService["Contribution Guide Service\n(Blueprint Synthesizer, Verification)"]
-            RAGService["RAG Pipeline Service\n(Chunker, Retriever, Indexer)"]
-        end
-    end
-
-    subgraph StorageLayer["Data & Inference Layer"]
-        Postgres[("PostgreSQL 16 + pgvector\n(Port 5432/5433 | Users, Profiles, Vectors)")]
-        OllamaEngine["Local Ollama Engine\n(Port 11434 | llama3.2:3b)"]
-    end
-
-    NextJS -->|"HTTP / JSON (/api/*)"| FastAPI
-    FastAPI --> ServicesLayer
+    User(["Developer"]) <--> WebUI["Frontend (Port 3000)\nNext.js 14 • React • Tailwind CSS"]
+    WebUI <-->|"REST API (/api/*)"| Backend["Backend (Port 8000)\nFastAPI Application"]
     
-    GitHubService -->|"HTTPS Requests"| RemoteGitHub["GitHub REST API"]
-    RAGService --> Postgres
-    SkillService --> Postgres
-    GuideService --> RAGService
-    LLMService --> OllamaEngine
+    Backend <-->|"Fetch Repo & Issues"| GitHub["GitHub REST API"]
+    Backend <-->|"User Profiles & Vector Search"| Database[("PostgreSQL 16 + pgvector")]
+    Backend <-->|"Local LLM Inference"| Ollama["Ollama Engine (llama3.2:3b)"]
+    Backend -->|"Generate Embeddings"| Embedder["Sentence Transformers (Local CPU)"]
 ```
 
 ---
@@ -150,24 +105,21 @@ The Retrieval-Augmented Generation (RAG) pipeline indexes codebase documents int
 
 ```mermaid
 flowchart LR
-    RepoFiles["Repository Source Code & Docs\n(Python, Markdown, YAML)"] --> FileFilter["File Filter & Safety Scanner\n(Skip Binary, Vendor & Minified Files)"]
-    FileFilter --> Chunker["Structure-Aware Chunker\n(AST & Function/Class Boundaries)"]
-    Chunker --> SentenceTrans["Sentence Transformers\n(Local CPU Ingestion)"]
-    SentenceTrans --> Embeddings["384-Dimensional Vectors\n(BAAI/bge-small-en-v1.5)"]
-    Embeddings --> PGVectorStore[("PostgreSQL + pgvector\n(Cosine Distance Index)")]
-    
-    Query["User Question / Issue Query"] --> QueryVec["Query Embedding"]
-    QueryVec --> SimSearch{"pgvector Similarity Retrieval"}
-    PGVectorStore --> SimSearch
-    
-    SimSearch -->|"Success (Cosine <= 0.8)"| RetrievedChunks["Ranked Code Chunks"]
-    SimSearch -->|"Fallback if unindexed"| KeywordFallback["Exact & Subword Keyword Matcher\n(Path & Filename Boosting)"]
-    KeywordFallback --> RetrievedChunks
-    
-    RetrievedChunks --> ContextAssembly["Bounded Context Assembly\n(Demarcated Prompt Injection Shield)"]
-    ContextAssembly --> OllamaInference["Local Ollama Inference\n(llama3.2:3b)"]
-    OllamaInference --> CitationGuard["Citation Verification Filter\n(Discard Hallucinated Citations)"]
-    CitationGuard --> GroundedAnswer["Verified Grounded Answer"]
+    subgraph Ingestion["1. Ingestion & Indexing"]
+        direction TB
+        Code["Repository Files & Docs"] --> Chunker["Code Chunker"]
+        Chunker --> Embedder["Sentence Transformers\n(BAAI/bge-small-en-v1.5)"]
+        Embedder --> VectorDB[("pgvector Store\n(384-dim Vectors)")]
+    end
+
+    subgraph Query["2. Retrieval & Grounding"]
+        direction TB
+        Question["User Question"] --> Retrieval["Hybrid Search\n(pgvector + Keyword)"]
+        VectorDB -.-> Retrieval
+        Retrieval --> Context["Bounded Context"]
+        Context --> LLM["Ollama LLM\n(llama3.2:3b)"]
+        LLM --> Answer["Grounded Answer\nwith File Citations"]
+    end
 ```
 
 > **Fallback Guardrail**: If a repository has not yet been indexed into pgvector or the database is starting up, the retriever seamlessly and automatically falls back to an exact and subword keyword retrieval engine with path and filename boosting.
@@ -499,68 +451,14 @@ The diagram below provides a complete, high-level view of the end-to-end data fl
 
 ```mermaid
 flowchart TD
-    subgraph UserInteraction["User Interaction"]
-        Dev["Developer"]
-    end
-
-    subgraph ClientLayer["Frontend Client (Port 3000)"]
-        UI["Next.js 14 Web Interface"]
-    end
-
-    subgraph APILayer["FastAPI Gateway (Port 8000)"]
-        API["FastAPI Application"]
-    end
-
-    subgraph ExternalServices["External APIs"]
-        GitHub["GitHub REST API"]
-    end
-
-    subgraph IngestionPipeline["Code Ingestion & Indexing"]
-        Ingestion["Source Ingestion Service"]
-        Chunker["AST Semantic Chunker"]
-        Embedder["Sentence Transformers\n(384-dim CPU)"]
-    end
-
-    subgraph Storage["Persistence Layer"]
-        DB[("PostgreSQL 16 + pgvector\n(Port 5433)")]
-    end
-
-    subgraph LocalInference["Local AI Inference"]
-        Ollama["Local Ollama Engine\n(llama3.2:3b)"]
-    end
-
-    subgraph AIFeatures["Output & Reasoning Engine"]
-        ArchOut["Architecture Breakdown"]
-        ChatOut["RAG Grounded Chat"]
-        IssueOut["Skill-Matched Issues"]
-        GuideOut["Contribution Guide"]
-    end
-
-    Dev -->|"Enters Repo URL / Query"| UI
-    UI -->|"HTTP Request"| API
+    Dev(["Developer"]) -->|"1. Enters GitHub URL"| UI["Next.js Web UI"]
+    UI -->|"2. Requests Analysis"| API["FastAPI Backend"]
     
-    API -->|"Fetch Tree, Files, Issues"| GitHub
-    GitHub -->|"Raw Repo Data"| API
+    API -->|"3. Ingests Repository"| GitHub["GitHub REST API"]
+    API -->|"4. Indexes Vectors & Profiles"| DB[("PostgreSQL 16 + pgvector")]
+    API -->|"5. Sends Bounded Prompts"| Ollama["Ollama (llama3.2:3b)"]
     
-    API -->|"Process Code"| Ingestion
-    Ingestion --> Chunker
-    Chunker --> Embedder
-    Embedder -->|"Store Vectors"| DB
-    
-    API -->|"Retrieve Context"| DB
-    DB -->|"Top-k Chunks"| API
-    
-    API -->|"Bounded Prompt"| Ollama
-    Ollama -->|"Inference Result"| API
-    
-    API --> ArchOut
-    API --> ChatOut
-    API --> IssueOut
-    API --> GuideOut
-    
-    ArchOut --> UI
-    ChatOut --> UI
-    IssueOut --> UI
-    GuideOut --> UI
-    UI -->|"Displays Insights & Guides"| Dev
+    Ollama -->|"6. Returns Grounded Insights"| API
+    API -->|"7. Returns Structured JSON"| UI
+    UI -->|"8. Renders Interactive Dashboard"| Dev
 ```
