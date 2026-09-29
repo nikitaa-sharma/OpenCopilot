@@ -61,6 +61,11 @@ from app.services.llm_provider import (
     LLMProviderError,
 )
 from app.services.llm_factory import UnsupportedLLMProviderError
+from app.services.structure_explainer_service import structure_explainer_service
+from app.schemas.structure_explainer import (
+    StructureExplainerRequest,
+    StructureExplainerResponse,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -392,6 +397,100 @@ async def analyze_repository_ai(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while analyzing the repository with AI.",
         )
+
+
+@router.post(
+    "/structure-explainer",
+    response_model=StructureExplainerResponse,
+    summary="Repository Structure Explainer / Understand This Repository",
+    description=(
+        "Provides a clear, beginner-friendly explanation of repository purpose, "
+        "directory responsibilities, architecturally significant files, component communication, "
+        "data flow, technology map, onboarding reading sequence, and GitHub-compatible Mermaid architecture diagram."
+    ),
+    responses={
+        200: {"description": "Repository structure successfully explained."},
+        400: {"description": "Invalid or malformed repository URL."},
+        404: {"description": "Repository not found or AI model not installed."},
+        403: {"description": "GitHub API rate limit exceeded."},
+        502: {"description": "AI model output failed validation against expected schema."},
+        503: {"description": "AI provider or GitHub API is unavailable."},
+        504: {"description": "AI provider request timed out."},
+        500: {"description": "Unexpected internal server error."},
+    },
+)
+async def explain_repository_structure(
+    request: StructureExplainerRequest,
+    branch: Optional[str] = Query(None, description="Optional branch or commit ref to explain"),
+) -> StructureExplainerResponse:
+    """
+    Handle Repository Structure Explainer analysis:
+    1. Validates repository URL.
+    2. Gathers metadata, directory tree, manifests, and RAG context snippets.
+    3. Calls configured LLM provider to explain architecture, flow, directories, and files.
+    4. Generates a valid GitHub-compatible Mermaid architecture diagram.
+    """
+    try:
+        response = await structure_explainer_service.explain_repository_structure(
+            url=request.url,
+            branch=branch or request.branch,
+        )
+        return response
+    except InvalidGitHubURLError as exc:
+        logger.warning(f"Invalid repository URL '{request.url}': {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except GitHubNotFoundError as exc:
+        logger.info(f"Repository not found for URL '{request.url}': {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="GitHub repository not found or is not publicly accessible.",
+        )
+    except GitHubRateLimitError as exc:
+        logger.warning(f"Rate limit exceeded while explaining '{request.url}': {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub API rate limit exceeded. Please try again later or configure a GitHub token.",
+        )
+    except GitHubServiceError as exc:
+        logger.error(f"GitHub service error while explaining '{request.url}': {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    except LLMProviderUnavailableError as exc:
+        logger.warning(f"LLM provider unavailable: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        )
+    except LLMModelNotFoundError as exc:
+        logger.warning(f"LLM model not found: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        )
+    except LLMTimeoutError as exc:
+        logger.warning(f"LLM request timed out: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=str(exc),
+        )
+    except UnsupportedLLMProviderError as exc:
+        logger.error(f"Configuration error: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.exception(f"Unexpected error during structure explainer for '{request.url}': {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while explaining repository structure.",
+        )
+
 
 
 @router.post(

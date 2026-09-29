@@ -22,6 +22,9 @@ from app.schemas.repository import (
 from app.services.github_service import github_service
 from app.services.profile_service import profile_service
 from app.services.skill_normalizer import (
+    filter_technical_skills,
+    is_non_technical_label,
+    is_technical_skill,
     normalize_profile,
     normalize_skill,
     normalize_skill_list,
@@ -92,6 +95,7 @@ class SkillMatchingService:
         """
         Extracts candidate required skills and difficulty estimate deterministically
         when an LLM analysis has not yet been computed for the issue.
+        Strictly excludes issue labels like 'enhancement', 'bug', 'good first issue' from skills.
         """
         skills: List[str] = []
         difficulty = "intermediate"
@@ -99,37 +103,31 @@ class SkillMatchingService:
         # 1. Infer from repository primary languages
         for lang_name in sorted(repo_languages.keys(), key=lambda k: repo_languages[k], reverse=True)[:2]:
             norm_lang = normalize_skill(lang_name)
-            if norm_lang and norm_lang not in skills:
+            if norm_lang and is_technical_skill(norm_lang) and norm_lang not in skills:
                 skills.append(norm_lang)
 
-        # 2. Extract from labels
+        # 2. Extract technical skills and difficulty cues from labels
         labels_lower = [lbl.lower() for lbl in issue.labels]
         for label in labels_lower:
-            norm_lbl = normalize_skill(label)
-            if norm_lbl and norm_lbl not in skills:
-                skills.append(norm_lbl)
-
-            if "good first" in label or "beginner" in label or "easy" in label or "starter" in label:
+            # Check difficulty cues from workflow labels (do NOT add them as skills)
+            if any(term in label for term in ("good first", "beginner", "easy", "starter")):
                 difficulty = "beginner"
-            elif "doc" in label:
-                skills.append("Documentation")
-                if difficulty != "beginner":
-                    difficulty = "beginner"
-            elif "test" in label or "testing" in label:
-                skills.append("Testing")
-            elif "docker" in label:
-                skills.append("Docker")
-            elif "performance" in label or "benchmark" in label or "kernel" in label:
+            elif any(term in label for term in ("performance", "benchmark", "kernel", "internals")):
                 difficulty = "advanced"
 
-        # 3. Simple title keyword scan
-        title_lower = issue.title.lower()
-        if "doc" in title_lower or "readme" in title_lower:
-            skills.append("Documentation")
-        if "test" in title_lower or "pytest" in title_lower:
-            skills.append("Testing")
+            # Only add to skills if the label is an actual technical skill and NOT a workflow label
+            if not is_non_technical_label(label) and is_technical_skill(label):
+                norm_lbl = normalize_skill(label)
+                if norm_lbl and norm_lbl not in skills:
+                    skills.append(norm_lbl)
 
-        return normalize_skill_list(skills), difficulty
+        # 3. Simple title keyword scan for technical terms
+        title_lower = issue.title.lower()
+        if "test" in title_lower or "pytest" in title_lower:
+            if "Testing" not in skills:
+                skills.append("Testing")
+
+        return filter_technical_skills(normalize_skill_list(skills)), difficulty
 
     def match_issue(
         self,
@@ -140,6 +138,10 @@ class SkillMatchingService:
     ) -> IssueRecommendationItem:
         """
         Calculates transparent skill match details between a single issue and developer profile.
+        Preserves the clear distinction between:
+          a) repository-language / profile match
+          b) issue-requirement match
+          c) learning opportunity
         """
         repo_languages = repo_languages or {}
         normalized_profile = normalize_profile(profile)
@@ -158,7 +160,9 @@ class SkillMatchingService:
 
         # Determine required skills and difficulty
         if analysis:
-            required_skills = normalize_skill_list(analysis.required_skills)
+            # Strictly filter out non-technical labels (like enhancement, bug) from requirements
+            raw_reqs = analysis.required_skills or []
+            required_skills = filter_technical_skills(normalize_skill_list(raw_reqs))
             difficulty = analysis.difficulty or "unknown"
             diff_rationale = analysis.difficulty_rationale
             candidate_files = analysis.candidate_files or []
@@ -167,22 +171,25 @@ class SkillMatchingService:
             diff_rationale = f"Heuristic estimate based on issue labels ({', '.join(issue.labels) if issue.labels else 'none'}) and repository languages."
             candidate_files = []
 
-        # Find matched skills and missing skills
+        # Find matched skills (split into requirement matches vs repository language matches)
+        matched_required_skills: List[str] = []
+        matched_repo_skills: List[str] = []
         matched_skills: List[str] = []
         missing_skills: List[str] = []
         match_reasons: List[str] = []
         learning_opportunities: List[str] = []
 
-        # Check direct required skills overlap
+        # 1. Check direct required skills overlap (Issue-Requirement Match)
         for req_skill in required_skills:
             if req_skill.lower() in dev_skills_set:
+                matched_required_skills.append(req_skill)
                 matched_skills.append(req_skill)
                 match_reasons.append(f"Issue requires {req_skill} knowledge, which matches your skill profile.")
             else:
                 missing_skills.append(req_skill)
                 learning_opportunities.append(f"Working on this issue provides an opportunity to gain experience with {req_skill}.")
 
-        # Check candidate files extensions against developer programming languages
+        # 2. Check candidate files extensions against developer programming languages
         dev_langs_lower = {l.lower() for l in normalized_profile.programming_languages}
         files_matched = False
         for cf in candidate_files:
@@ -196,31 +203,44 @@ class SkillMatchingService:
                             matched_skills.append(skill_name)
                     break
 
-        # Check repository languages match
+        # 3. Check repository languages match (Repository-Language / Profile Match)
         for r_lang in repo_languages.keys():
             norm_r_lang = normalize_skill(r_lang)
-            if norm_r_lang.lower() in dev_langs_lower and norm_r_lang not in matched_skills:
-                match_reasons.append(f"Repository primary language ({norm_r_lang}) matches your declared programming languages.")
-                matched_skills.append(norm_r_lang)
+            if norm_r_lang and norm_r_lang.lower() in dev_langs_lower:
+                if norm_r_lang not in matched_repo_skills:
+                    matched_repo_skills.append(norm_r_lang)
+                if norm_r_lang not in matched_skills:
+                    matched_skills.append(norm_r_lang)
 
-        # Check domain / interest match with issue labels or areas
+        # 4. Check domain / interest match with issue labels or areas
         labels_lower = {lbl.lower() for lbl in issue.labels}
         for interest in normalized_profile.interests:
             if interest.lower() in labels_lower or interest.lower() in issue.title.lower():
                 match_reasons.append(f"Issue topic relates to your interest in {interest}.")
 
-        # Compute transparent match score
+        # Compute transparent match score based strictly on analyzed requirements
         total_eval_skills = len(required_skills)
         if total_eval_skills > 0:
-            # Ratio of matched required skills
-            matched_req_count = sum(1 for req in required_skills if req.lower() in dev_skills_set)
+            matched_req_count = len(matched_required_skills)
             base_score = matched_req_count / float(total_eval_skills)
 
-            # Bonus for candidate files / repo language alignment if not already 1.0
-            if files_matched and base_score < 1.0:
+            # Bonus for candidate files alignment if not already 1.0 and some base match exists
+            if files_matched and base_score > 0.0 and base_score < 1.0:
                 base_score = min(1.0, base_score + 0.1)
 
             score = round(max(0.0, min(1.0, base_score)), 2)
+
+            if score == 0.0:
+                if matched_repo_skills:
+                    match_reasons.insert(
+                        0,
+                        f"Repository primary language ({', '.join(matched_repo_skills)}) matches your profile. "
+                        f"However, specific issue requirements ({', '.join(missing_skills)}) represent a learning opportunity."
+                    )
+                else:
+                    match_reasons.append("No direct skill overlap detected between your profile and this issue's requirements.")
+            elif matched_repo_skills:
+                match_reasons.append(f"Repository primary language ({', '.join(matched_repo_skills)}) also matches your declared stack.")
         elif len(matched_skills) > 0:
             # Heuristic match when no required skills specified
             score = 0.5
@@ -237,12 +257,16 @@ class SkillMatchingService:
             match_label = "Strong skill overlap"
         elif score > 0.0:
             match_label = "Moderate skill match"
+        elif matched_repo_skills:
+            match_label = "Repo stack match • Learning opportunity"
         else:
             match_label = "Learning opportunity"
 
         skill_match_result = SkillMatchResult(
             score=score,
             matched_skills=normalize_skill_list(matched_skills),
+            matched_required_skills=normalize_skill_list(matched_required_skills),
+            matched_repo_skills=normalize_skill_list(matched_repo_skills),
             missing_skills=normalize_skill_list(missing_skills),
             match_reasons=match_reasons,
             learning_opportunities=learning_opportunities,

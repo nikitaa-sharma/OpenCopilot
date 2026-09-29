@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # GitHub API Configuration
     GITHUB_TOKEN: str = ""
     GITHUB_API_BASE_URL: str = "https://api.github.com"
-    GITHUB_REQUEST_TIMEOUT: int = 15
+    GITHUB_REQUEST_TIMEOUT: int = 30
 
     # Ingestion & Safety Limits (Phase 4)
     MAX_TREE_ITEMS: int = 10000          # Max items processed from recursive git tree

@@ -107,14 +107,16 @@ async def test_token_value_is_never_logged(caplog):
         with caplog.at_level(logging.DEBUG):
             await svc.fetch_repository("owner", "repo")
 
-    # 2. Timeout error
+    # 2. Timeout error (clear cache so this actually hits the mock)
+    svc.clear_cache()
     with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
         mock_get.side_effect = httpx.TimeoutException("Connection timed out")
         with caplog.at_level(logging.DEBUG):
             with pytest.raises(GitHubServiceError):
                 await svc.fetch_repository("owner", "repo")
 
-    # 3. Rate limit 403 error
+    # 3. Rate limit 403 error (clear cache so this actually hits the mock)
+    svc.clear_cache()
     mock_resp_403 = httpx.Response(
         403,
         headers={"x-ratelimit-remaining": "0"},
@@ -389,4 +391,166 @@ async def test_fetch_single_issue_rejects_pull_request():
         with pytest.raises(GitHubNotFoundError) as exc:
             await service.fetch_single_issue("owner", "repo", 43)
         assert "pull request" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Cache reuse tests
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_cache_reuse_avoids_duplicate_api_call():
+    """Verify second fetch_repository call uses cache and does NOT call the GitHub API again."""
+    svc = GitHubService(token="test")
+    mock_payload = {"id": 1, "name": "repo", "owner": {"login": "owner"}}
+    mock_resp = httpx.Response(200, json=mock_payload)
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        result1 = await svc.fetch_repository("owner", "repo")
+        result2 = await svc.fetch_repository("owner", "repo")
+
+    # The HTTP client should have been called exactly once
+    assert mock_get.call_count == 1
+    assert result1["name"] == "repo"
+    assert result2["name"] == "repo"
+
+
+@pytest.mark.asyncio
+async def test_cache_reuse_for_languages():
+    """Verify fetch_languages uses cache on repeated calls."""
+    svc = GitHubService(token="test")
+    mock_resp = httpx.Response(200, json={"Python": 50000, "JavaScript": 30000})
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        r1 = await svc.fetch_languages("owner", "repo")
+        r2 = await svc.fetch_languages("owner", "repo")
+
+    assert mock_get.call_count == 1
+    assert r1 == r2 == {"Python": 50000, "JavaScript": 30000}
+
+
+@pytest.mark.asyncio
+async def test_cache_reuse_for_readme():
+    """Verify fetch_readme uses cache on repeated calls."""
+    import base64 as b64
+    svc = GitHubService(token="test")
+    content = "# Hello"
+    mock_resp = httpx.Response(200, json={
+        "name": "README.md",
+        "encoding": "base64",
+        "content": b64.b64encode(content.encode()).decode(),
+        "html_url": "https://github.com/o/r/blob/main/README.md",
+        "size": len(content),
+    })
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        r1 = await svc.fetch_readme("owner", "repo")
+        r2 = await svc.fetch_readme("owner", "repo")
+
+    assert mock_get.call_count == 1
+    assert r1["content"] == content
+    assert r2["content"] == content
+
+
+@pytest.mark.asyncio
+async def test_cache_clear_forces_refetch():
+    """Verify clear_cache() invalidates cached data and the next call hits the API again."""
+    svc = GitHubService(token="test")
+    mock_resp = httpx.Response(200, json={"Python": 10000})
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        await svc.fetch_languages("owner", "repo")
+        svc.clear_cache()
+        await svc.fetch_languages("owner", "repo")
+
+    assert mock_get.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# 401 invalid token test
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_fetch_repository_401_invalid_token():
+    """Verify a 401 response raises GitHubServiceError mentioning invalid token."""
+    svc = GitHubService(token="ghp_invalid_token")
+    mock_resp = httpx.Response(
+        401,
+        json={"message": "Bad credentials"},
+        request=httpx.Request("GET", "https://api.github.com/repos/owner/repo"),
+    )
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        with pytest.raises(GitHubServiceError) as exc:
+            await svc.fetch_repository("owner", "repo")
+        assert "Invalid" in str(exc.value) or "expired" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Authenticated vs unauthenticated rate limit distinction
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_rate_limit_error_authenticated_message():
+    """Verify authenticated rate-limit error mentions 'your configured token'."""
+    svc = GitHubService(token="ghp_valid_token")
+    mock_resp = httpx.Response(
+        403,
+        headers={"x-ratelimit-remaining": "0"},
+        json={"message": "API rate limit exceeded"},
+    )
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        with pytest.raises(GitHubRateLimitError) as exc:
+            await svc.fetch_repository("owner", "repo")
+        assert "your configured token" in str(exc.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_error_unauthenticated_message():
+    """Verify unauthenticated rate-limit error suggests configuring a GITHUB_TOKEN."""
+    svc = GitHubService(token="")
+    mock_resp = httpx.Response(
+        403,
+        headers={"x-ratelimit-remaining": "0"},
+        json={"message": "API rate limit exceeded"},
+    )
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        with pytest.raises(GitHubRateLimitError) as exc:
+            await svc.fetch_repository("owner", "repo")
+        error_msg = str(exc.value).lower()
+        assert "github_token" in error_msg or "personal access token" in error_msg
+
+
+# ---------------------------------------------------------------------------
+# File content cache reuse
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_cache_reuse_for_file_content():
+    """Verify fetch_file_content uses cache for repeated calls to the same file."""
+    import base64 as b64
+    svc = GitHubService(token="test")
+    file_text = "console.log('hello');"
+    mock_resp = httpx.Response(200, json={
+        "name": "index.js",
+        "path": "src/index.js",
+        "sha": "abc123",
+        "size": len(file_text),
+        "type": "file",
+        "encoding": "base64",
+        "content": b64.b64encode(file_text.encode()).decode(),
+    })
+
+    with patch.object(httpx.AsyncClient, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        r1 = await svc.fetch_file_content("owner", "repo", "src/index.js", branch="main")
+        r2 = await svc.fetch_file_content("owner", "repo", "src/index.js", branch="main")
+
+    assert mock_get.call_count == 1
+    assert r1["content"] == file_text
+    assert r2["content"] == file_text
 

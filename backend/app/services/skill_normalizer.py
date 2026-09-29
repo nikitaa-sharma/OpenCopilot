@@ -163,6 +163,97 @@ CANONICAL_SKILL_MAP: Dict[str, str] = {
     "testing": "Testing",
 }
 
+# Common GitHub issue labels and workflow tags that are NOT developer technical skills
+NON_TECHNICAL_LABELS = {
+    "enhancement",
+    "feature",
+    "feature request",
+    "feat",
+    "bug",
+    "bugfix",
+    "fix",
+    "defect",
+    "issue",
+    "wontfix",
+    "invalid",
+    "duplicate",
+    "question",
+    "discussion",
+    "help wanted",
+    "good first issue",
+    "good-first-issue",
+    "beginner friendly",
+    "first timers only",
+    "needs review",
+    "needs triage",
+    "needs info",
+    "needs reproduction",
+    "triage",
+    "stale",
+    "pinned",
+    "status",
+    "priority",
+    "critical",
+    "high priority",
+    "low priority",
+    "medium priority",
+    "severity",
+    "chore",
+    "refactor",
+    "refactoring",
+    "dependencies",
+    "dependency",
+    "automated",
+    "release",
+    "sub-task",
+    "epic",
+}
+
+
+def clean_label_text(label: str) -> str:
+    """Strips emojis, prefixes, and punctuation from label strings."""
+    if not label or not isinstance(label, str):
+        return ""
+    # Strip common prefixes like 'type:', 'kind:', 'area:', 'status:', 'priority:'
+    cleaned = re.sub(r"^(?:type|kind|area|status|priority|severity|cat)\s*:\s*", "", label, flags=re.IGNORECASE)
+    # Strip emojis and punctuation except + and #
+    cleaned = re.sub(r"[^\w\s\+\#\.\-]", "", cleaned).strip().lower()
+    return cleaned
+
+
+def is_non_technical_label(label: str) -> bool:
+    """Checks whether a label represents an issue workflow/type rather than a developer skill."""
+    cleaned = clean_label_text(label)
+    if not cleaned:
+        return True
+    if cleaned in NON_TECHNICAL_LABELS:
+        return True
+    for non_tech in NON_TECHNICAL_LABELS:
+        if non_tech in cleaned.split():
+            return True
+    return False
+
+
+def is_technical_skill(skill: str) -> bool:
+    """Returns True if the string corresponds to a known technical skill or language/tool."""
+    if not skill or not isinstance(skill, str):
+        return False
+    if is_non_technical_label(skill):
+        return False
+    cleaned = skill.strip().lower()
+    return cleaned in CANONICAL_SKILL_MAP
+
+
+def filter_technical_skills(skills: Optional[List[str]]) -> List[str]:
+    """Filters out issue labels, workflow types, and non-technical tags."""
+    if not skills:
+        return []
+    filtered = []
+    for s in skills:
+        if s and not is_non_technical_label(s):
+            filtered.append(s)
+    return filtered
+
 
 def normalize_skill(skill: str) -> str:
     """
@@ -176,6 +267,10 @@ def normalize_skill(skill: str) -> str:
 
     cleaned = skill.strip()
     if not cleaned:
+        return ""
+
+    # If this is clearly a non-technical issue label, do not treat as skill
+    if is_non_technical_label(cleaned):
         return ""
 
     lookup_key = cleaned.lower()

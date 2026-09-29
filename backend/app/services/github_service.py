@@ -1,6 +1,7 @@
 import base64
 import logging
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -144,6 +145,8 @@ class GitHubService:
         self.base_url = (base_url or settings.GITHUB_API_BASE_URL).rstrip("/")
         self._explicit_token = token
         self.timeout = timeout if timeout is not None else settings.GITHUB_REQUEST_TIMEOUT
+        self._cache: Dict[str, Tuple[float, Any]] = {}
+        self._cache_ttl: float = 300.0  # 5 minutes in-memory cache
         logger.info(f"GitHubService initialized (authenticated: {self.is_authenticated})")
 
     @property
@@ -162,6 +165,25 @@ class GitHubService:
         """Safe diagnostic: returns True if a GitHub token is configured, without exposing the token."""
         return bool(self.token and self.token.strip())
 
+    def _get_cache(self, key: str) -> Optional[Any]:
+        """Returns cached payload if present and not expired."""
+        if key in self._cache:
+            ts, val = self._cache[key]
+            if time.time() - ts < self._cache_ttl:
+                logger.debug(f"GitHubService cache hit: {key}")
+                return val
+            else:
+                del self._cache[key]
+        return None
+
+    def _set_cache(self, key: str, val: Any) -> None:
+        """Stores a payload in the in-memory cache."""
+        self._cache[key] = (time.time(), val)
+
+    def clear_cache(self) -> None:
+        """Clears all cached GitHub API responses."""
+        self._cache.clear()
+
     def _get_headers(self) -> Dict[str, str]:
         """Generate headers required for GitHub API requests."""
         headers = {
@@ -178,9 +200,14 @@ class GitHubService:
         """Translate GitHub HTTP error status codes into descriptive domain exceptions."""
         status = response.status_code
 
+        if status == 401:
+            raise GitHubServiceError(
+                "Invalid or expired GitHub Personal Access Token. Please verify your GITHUB_TOKEN environment variable."
+            )
+
         if status == 404:
             raise GitHubNotFoundError(
-                "GitHub repository not found or is not publicly accessible."
+                "GitHub repository or resource not found or is not publicly accessible."
             )
 
         if status == 403:
@@ -193,10 +220,15 @@ class GitHubService:
             except Exception:
                 pass
 
-            if remaining == "0" or "rate limit" in message.lower():
-                raise GitHubRateLimitError(
-                    "GitHub API rate limit exceeded. Please try again later or configure a GitHub token."
-                )
+            if remaining == "0" or "rate limit" in message.lower() or "secondary rate limit" in message.lower():
+                if self.is_authenticated:
+                    raise GitHubRateLimitError(
+                        "GitHub API rate limit exceeded for your configured token. Please try again later."
+                    )
+                else:
+                    raise GitHubRateLimitError(
+                        "GitHub API rate limit exceeded. Please try again later or configure a GitHub Personal Access Token (GITHUB_TOKEN) in your environment for a higher limit (5,000 req/hr)."
+                    )
             raise GitHubServiceError(
                 f"GitHub API access forbidden: {message or 'Forbidden'}"
             )
@@ -216,6 +248,11 @@ class GitHubService:
 
     async def fetch_repository(self, owner: str, repo: str) -> Dict[str, Any]:
         """Fetch general repository metadata from GET /repos/{owner}/{repo}."""
+        cache_key = f"repo:{owner.lower()}/{repo.lower()}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/repos/{owner}/{repo}"
         headers = self._get_headers()
 
@@ -246,7 +283,7 @@ class GitHubService:
                 "url": data["license"].get("url"),
             }
 
-        return {
+        result = {
             "id": data.get("id"),
             "owner": data.get("owner", {}).get("login", owner),
             "name": data.get("name", repo),
@@ -266,9 +303,16 @@ class GitHubService:
             "updated_at": data.get("updated_at"),
             "pushed_at": data.get("pushed_at"),
         }
+        self._set_cache(cache_key, result)
+        return result
 
     async def fetch_languages(self, owner: str, repo: str) -> Dict[str, int]:
         """Fetch language byte counts from GET /repos/{owner}/{repo}/languages."""
+        cache_key = f"languages:{owner.lower()}/{repo.lower()}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/repos/{owner}/{repo}/languages"
         headers = self._get_headers()
 
@@ -289,13 +333,20 @@ class GitHubService:
         if response.is_error:
             self._handle_error_response(response, f"fetching languages for {owner}/{repo}")
 
-        return response.json()
+        result = response.json()
+        self._set_cache(cache_key, result)
+        return result
 
     async def fetch_readme(self, owner: str, repo: str) -> Optional[Dict[str, Any]]:
         """
         Fetch repository README from GET /repos/{owner}/{repo}/readme.
         Decodes base64 content if present. Returns None if README does not exist (404).
         """
+        cache_key = f"readme:{owner.lower()}/{repo.lower()}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/repos/{owner}/{repo}/readme"
         headers = self._get_headers()
 
@@ -314,6 +365,7 @@ class GitHubService:
                 ) from exc
 
         if response.status_code == 404:
+            self._set_cache(cache_key, None)
             return None
 
         if response.is_error:
@@ -334,12 +386,14 @@ class GitHubService:
         else:
             decoded_text = raw_content
 
-        return {
+        result = {
             "name": data.get("name", "README.md"),
             "content": decoded_text,
             "html_url": data.get("html_url"),
             "size": data.get("size", 0),
         }
+        self._set_cache(cache_key, result)
+        return result
 
     async def fetch_issues(
         self, owner: str, repo: str, per_page: int = 20, state: str = "open"
@@ -348,6 +402,11 @@ class GitHubService:
         Fetch issues from GET /repos/{owner}/{repo}/issues?state={state}&per_page=...
         Strictly excludes pull requests (entries containing 'pull_request' key).
         """
+        cache_key = f"issues:{owner.lower()}/{repo.lower()}:{state}:{per_page}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/repos/{owner}/{repo}/issues"
         headers = self._get_headers()
         # Request slightly more items to account for PRs that will be filtered out
@@ -404,6 +463,7 @@ class GitHubService:
             if len(issues) >= per_page:
                 break
 
+        self._set_cache(cache_key, issues)
         return issues
 
     async def fetch_single_issue(
@@ -413,6 +473,11 @@ class GitHubService:
         Fetch a single issue by number from GET /repos/{owner}/{repo}/issues/{issue_number}.
         Returns normalized issue dict, strictly verifying it is not a pull request.
         """
+        cache_key = f"issue:{owner.lower()}/{repo.lower()}:{issue_number}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/repos/{owner}/{repo}/issues/{issue_number}"
         headers = self._get_headers()
 
@@ -453,7 +518,7 @@ class GitHubService:
         ]
         user_login = item.get("user", {}).get("login", "") if item.get("user") else ""
 
-        return {
+        result = {
             "id": item.get("id"),
             "number": item.get("number"),
             "title": item.get("title", ""),
@@ -466,6 +531,8 @@ class GitHubService:
             "created_at": item.get("created_at"),
             "updated_at": item.get("updated_at"),
         }
+        self._set_cache(cache_key, result)
+        return result
 
     async def fetch_tree(
         self, owner: str, repo: str, branch: Optional[str] = None, recursive: bool = True
@@ -475,6 +542,11 @@ class GitHubService:
         Uses branch name (or 'HEAD' as default) and normalizes 'blob' -> 'file' and 'tree' -> 'directory'.
         """
         target_ref = branch.strip() if branch and branch.strip() else "HEAD"
+        cache_key = f"tree:{owner.lower()}/{repo.lower()}:{target_ref}:{recursive}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/repos/{owner}/{repo}/git/trees/{target_ref}"
         params = {"recursive": "1"} if recursive else {}
         headers = self._get_headers()
@@ -523,12 +595,14 @@ class GitHubService:
                 "url": item.get("url"),
             })
 
-        return {
+        result = {
             "sha": data.get("sha", ""),
             "branch": target_ref,
             "truncated": truncated,
             "tree": normalized_tree,
         }
+        self._set_cache(cache_key, result)
+        return result
 
     async def fetch_file_content(
         self, owner: str, repo: str, path: str, branch: Optional[str] = None
@@ -541,6 +615,11 @@ class GitHubService:
             clean_path = validate_repository_path(path)
         except (PathTraversalError, ValueError) as exc:
             raise InvalidGitHubURLError(f"Invalid file path: {exc}") from exc
+
+        cache_key = f"file:{owner.lower()}/{repo.lower()}:{clean_path}:{branch or 'default'}"
+        cached = self._get_cache(cache_key)
+        if cached is not None:
+            return cached
 
         url = f"{self.base_url}/repos/{owner}/{repo}/contents/{clean_path}"
 
@@ -573,7 +652,7 @@ class GitHubService:
 
         # If path points to a directory instead of a file, GitHub returns a list
         if isinstance(data, list):
-            return {
+            res = {
                 "path": clean_path,
                 "name": clean_path.split("/")[-1],
                 "sha": None,
@@ -582,10 +661,12 @@ class GitHubService:
                 "is_binary": False,
                 "skip_reason": f"'{clean_path}' is a directory, not a file.",
             }
+            self._set_cache(cache_key, res)
+            return res
 
         item_type = data.get("type", "file")
         if item_type != "file":
-            return {
+            res = {
                 "path": clean_path,
                 "name": data.get("name", clean_path.split("/")[-1]),
                 "sha": data.get("sha"),
@@ -594,6 +675,8 @@ class GitHubService:
                 "is_binary": False,
                 "skip_reason": f"Unsupported object type '{item_type}'.",
             }
+            self._set_cache(cache_key, res)
+            return res
 
         size = data.get("size", 0)
         sha = data.get("sha")
@@ -603,7 +686,7 @@ class GitHubService:
 
         # Check file size limit
         if size > settings.MAX_FILE_SIZE_BYTES:
-            return {
+            res = {
                 "path": clean_path,
                 "name": name,
                 "sha": sha,
@@ -612,6 +695,8 @@ class GitHubService:
                 "is_binary": False,
                 "skip_reason": f"File size ({size} bytes) exceeds maximum limit of {settings.MAX_FILE_SIZE_BYTES} bytes.",
             }
+            self._set_cache(cache_key, res)
+            return res
 
         # Decode base64 content safely
         decoded_text: Optional[str] = None
@@ -635,7 +720,7 @@ class GitHubService:
         else:
             decoded_text = raw_content
 
-        return {
+        result = {
             "path": clean_path,
             "name": name,
             "sha": sha,
@@ -644,6 +729,8 @@ class GitHubService:
             "is_binary": is_binary,
             "skip_reason": skip_reason,
         }
+        self._set_cache(cache_key, result)
+        return result
 
     async def analyze_repository(self, url: str) -> Dict[str, Any]:
         """

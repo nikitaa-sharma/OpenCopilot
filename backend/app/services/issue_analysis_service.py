@@ -94,10 +94,20 @@ class IssueAnalysisService:
         )
         ranked_candidates = self.context_builder.rank_candidate_files(tree_items, keywords)
 
-        # 5. Fetch content of top candidate files (up to 3 files) to ground investigation
+        # 5. Fetch content of top candidate files (up to 3 unique files) to ground investigation
         file_contents: Dict[str, str] = {}
-        top_candidates = ranked_candidates[:3]
-        for item, _ in top_candidates:
+        seen_paths = set()
+        unique_candidates = []
+        for item, _ in ranked_candidates:
+            if item.path not in seen_paths and getattr(item, "type", "file") == "file":
+                seen_paths.add(item.path)
+                unique_candidates.append(item)
+            if len(unique_candidates) >= 3:
+                break
+
+        for item in unique_candidates:
+            if item.path in file_contents:
+                continue
             try:
                 content_resp = await repository_ingestion_service.get_file_content(
                     owner=owner,

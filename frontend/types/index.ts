@@ -470,6 +470,8 @@ export interface DeveloperSkillProfile {
 export interface SkillMatchResult {
   score: number;
   matched_skills: string[];
+  matched_required_skills?: string[];
+  matched_repo_skills?: string[];
   missing_skills: string[];
   match_reasons: string[];
   learning_opportunities: string[];
@@ -610,6 +612,97 @@ export interface AuthTokenResponse {
 export interface AuthStatusResponse {
   authenticated: boolean;
   user?: AuthUser | null;
+}
+
+// ==============================================================================
+// Repository Structure Explainer / Understand This Repository Types
+// ==============================================================================
+
+export interface RepositoryOverviewDetail {
+  what_it_does: string;
+  main_purpose: string;
+  primary_technologies: string[];
+  application_type: string;
+  entry_points: string[];
+  high_level_architecture: string;
+}
+
+export interface DirectoryExplanationDetail {
+  name: string;
+  purpose: string;
+  contains: string;
+  important_subdirectories: string[];
+  relationship: string;
+  evidence?: string | null;
+  confidence: "high" | "medium" | "low" | "uncertain" | string;
+}
+
+export interface ImportantFileDetail {
+  path: string;
+  category: "manifest" | "config" | "entry_point" | "routing" | "database" | "api" | "test" | "devops" | "documentation" | "core_logic" | string;
+  description: string;
+  evidence?: string | null;
+}
+
+export interface ArchitectureExplanation {
+  overview: string;
+  pattern: string;
+  layers: string[];
+  diagram_mermaid: string;
+}
+
+export interface RepositoryFlow {
+  execution_start: string;
+  component_communication: string;
+  data_entry: string;
+  data_processing: string;
+  data_storage: string;
+  result_delivery: string;
+}
+
+export interface TechnologyMap {
+  frontend: string[];
+  backend: string[];
+  database: string[];
+  apis: string[];
+  ai_ml: string[];
+  testing: string[];
+  devops: string[];
+  build_tools: string[];
+}
+
+export interface WhereToStartStep {
+  step_number: number;
+  title: string;
+  target_path?: string | null;
+  guidance: string;
+  why: string;
+}
+
+export interface StructureExplainerAnalysis {
+  overview: RepositoryOverviewDetail;
+  directories: DirectoryExplanationDetail[];
+  important_files: ImportantFileDetail[];
+  architecture: ArchitectureExplanation;
+  flow: RepositoryFlow;
+  technology_map: TechnologyMap;
+  where_to_start: WhereToStartStep[];
+  confidence_evidence: string;
+}
+
+export interface StructureExplainerResponse {
+  repository: {
+    owner: string;
+    name: string;
+    branch?: string;
+  };
+  explainer: StructureExplainerAnalysis;
+  provider: string;
+  model: string;
+  context_stats?: {
+    files_included: number;
+    total_context_chars: number;
+  } | null;
 }
 
 

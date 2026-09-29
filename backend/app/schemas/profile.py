@@ -70,11 +70,19 @@ class SkillMatchResult(BaseModel):
     )
     matched_skills: List[str] = Field(
         default_factory=list,
-        description="Required or relevant skills that match the developer's profile",
+        description="All required or relevant skills that match the developer's profile",
+    )
+    matched_required_skills: List[str] = Field(
+        default_factory=list,
+        description="Issue-specific required skills that overlap with the developer profile",
+    )
+    matched_repo_skills: List[str] = Field(
+        default_factory=list,
+        description="Repository languages or technologies that overlap with the developer profile",
     )
     missing_skills: List[str] = Field(
         default_factory=list,
-        description="Required skills identified for the issue that are not in the developer's profile",
+        description="Required technical skills identified for the issue that are not in the developer's profile",
     )
     match_reasons: List[str] = Field(
         default_factory=list,

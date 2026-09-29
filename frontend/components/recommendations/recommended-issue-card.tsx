@@ -160,31 +160,38 @@ export function RecommendedIssues({
     );
   };
 
-  const getMatchScoreBadge = (score: number) => {
+  const getMatchScoreBadge = (score: number, matchedRepoSkills?: string[]) => {
     const percentage = Math.round(score * 100);
     if (percentage >= 75) {
       return (
-        <Badge variant="success" className="text-xs font-semibold">
+        <Badge variant="success" className="text-xs font-semibold whitespace-nowrap">
           {percentage}% Skill Match
         </Badge>
       );
     }
     if (percentage >= 40) {
       return (
-        <Badge variant="warning" className="text-xs font-semibold">
+        <Badge variant="warning" className="text-xs font-semibold whitespace-nowrap">
           {percentage}% Skill Match
         </Badge>
       );
     }
     if (percentage > 0) {
       return (
-        <Badge variant="outline" className="text-xs font-semibold border-primary/40 text-primary">
+        <Badge variant="outline" className="text-xs font-semibold border-primary/40 text-primary whitespace-nowrap">
           {percentage}% Skill Match
         </Badge>
       );
     }
+    if (matchedRepoSkills && matchedRepoSkills.length > 0) {
+      return (
+        <Badge variant="outline" className="text-xs font-semibold border-amber-500/40 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+          0% Requirement Match • Repo Stack Overlap
+        </Badge>
+      );
+    }
     return (
-      <Badge variant="outline" className="text-xs font-semibold text-muted-foreground">
+      <Badge variant="outline" className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
         0% Skill Match • Learning Opportunity
       </Badge>
     );
@@ -347,21 +354,21 @@ export function RecommendedIssues({
                   key={rec.issue.number}
                   className="border-border bg-card/90 shadow-xl overflow-hidden transition-all hover:border-primary/40"
                 >
-                  <CardHeader className="p-5 sm:p-6 border-b border-border/40 bg-secondary/15">
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                      <div className="space-y-2 flex-1">
+                  <CardHeader className="p-4 sm:p-5 lg:p-6 border-b border-border/40 bg-secondary/15">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                      <div className="space-y-2 flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-sm font-bold text-primary">
                             Issue #{rec.issue.number}
                           </span>
-                          {getMatchScoreBadge(rec.skill_match.score)}
+                          {getMatchScoreBadge(rec.skill_match.score, rec.skill_match.matched_repo_skills)}
                           {getDifficultyBadge(rec.difficulty)}
-                          <Badge variant="outline" className="text-xs font-mono text-muted-foreground">
+                          <Badge variant="outline" className="text-xs font-mono text-muted-foreground whitespace-nowrap">
                             {rec.match_label}
                           </Badge>
                         </div>
 
-                        <CardTitle className="text-base sm:text-lg font-bold text-foreground hover:text-primary transition-colors">
+                        <CardTitle className="text-base sm:text-lg font-bold text-foreground hover:text-primary transition-colors break-words">
                           {rec.issue.title}
                         </CardTitle>
 
@@ -369,7 +376,7 @@ export function RecommendedIssues({
                           {rec.issue.labels.map((lbl) => (
                             <span
                               key={lbl}
-                              className="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground border border-border/40"
+                              className="text-[10px] font-mono px-2 py-0.5 rounded bg-secondary text-muted-foreground border border-border/40 max-w-full truncate"
                             >
                               {lbl}
                             </span>
@@ -377,14 +384,14 @@ export function RecommendedIssues({
                         </div>
                       </div>
 
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-2 shrink-0 self-start">
+                      {/* Action buttons - wraps naturally on smaller widths without clipping */}
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 w-full lg:w-auto mt-1 lg:mt-0 justify-start lg:justify-end shrink-0">
                         {isLive && (
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleAnalyzeIssue(rec.issue)}
-                            className="gap-1.5 text-xs h-8"
+                            className="gap-1.5 text-xs h-8 whitespace-nowrap"
                           >
                             <Sparkles className="h-3.5 w-3.5 text-primary" />
                             <span>Analyze with AI</span>
@@ -399,7 +406,7 @@ export function RecommendedIssues({
                               if (onSelectIssue) onSelectIssue(rec.issue.number);
                               if (onScrollToGuide) onScrollToGuide();
                             }}
-                            className="gap-1.5 text-xs h-8 bg-primary hover:bg-primary/90 text-primary-foreground"
+                            className="gap-1.5 text-xs h-8 bg-primary hover:bg-primary/90 text-primary-foreground whitespace-nowrap"
                           >
                             <BookOpen className="h-3.5 w-3.5" />
                             <span>Contribution Guide</span>
@@ -410,7 +417,7 @@ export function RecommendedIssues({
                           href={rec.issue.html_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground bg-secondary hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-md transition-colors h-8"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground bg-secondary hover:bg-secondary/80 border border-border px-3 py-1.5 rounded-md transition-colors h-8 whitespace-nowrap"
                         >
                           <span>View on GitHub</span>
                           <ExternalLink className="h-3.5 w-3.5" />
@@ -419,16 +426,21 @@ export function RecommendedIssues({
                     </div>
                   </CardHeader>
 
-                  <CardContent className="p-5 sm:p-6 space-y-5">
+                  <CardContent className="p-4 sm:p-5 lg:p-6 space-y-5">
                     {/* Skills Breakdown Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Matched Skills */}
                       <div className="p-3.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20 space-y-2">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-1">
                           <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             <span>Matched Skills ({rec.skill_match.matched_skills.length})</span>
                           </span>
+                          {matchPercentage === 0 && (rec.skill_match.matched_repo_skills?.length || 0) > 0 && (
+                            <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                              Repo Language Match
+                            </span>
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {rec.skill_match.matched_skills.length === 0 ? (
@@ -436,19 +448,34 @@ export function RecommendedIssues({
                               No direct overlap detected.
                             </span>
                           ) : (
-                            rec.skill_match.matched_skills.map((skill) => (
-                              <span
-                                key={skill}
-                                className="inline-flex items-center gap-1 text-xs font-mono bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded-md"
-                              >
-                                <span>{skill}</span>
-                              </span>
-                            ))
+                            rec.skill_match.matched_skills.map((skill) => {
+                              const isRepo = rec.skill_match.matched_repo_skills?.includes(skill);
+                              const isReq = rec.skill_match.matched_required_skills?.includes(skill);
+                              return (
+                                <span
+                                  key={skill}
+                                  className="inline-flex items-center gap-1 text-xs font-mono bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded-md"
+                                >
+                                  <span>{skill}</span>
+                                  {isRepo && !isReq && (
+                                    <span className="text-[9px] opacity-75 font-sans font-normal">(Repo Language)</span>
+                                  )}
+                                  {isReq && (
+                                    <span className="text-[9px] opacity-75 font-sans font-normal">(Requirement)</span>
+                                  )}
+                                </span>
+                              );
+                            })
                           )}
                         </div>
+                        {matchPercentage === 0 && (rec.skill_match.matched_repo_skills?.length || 0) > 0 && (
+                          <p className="text-[11px] text-muted-foreground/80 pt-1 leading-snug">
+                            {rec.skill_match.matched_repo_skills?.join(", ")} matches the repository language. The issue&apos;s specific requirements ({rec.skill_match.missing_skills.join(", ")}) provide an ideal learning opportunity.
+                          </p>
+                        )}
                       </div>
 
-                      {/* Skill Gaps */}
+                      {/* Skill Gaps (Only real technical skills) */}
                       <div className="p-3.5 rounded-lg bg-amber-500/5 border border-amber-500/20 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">

@@ -539,3 +539,188 @@ def test_recommend_endpoint_missing_owner_or_repo():
         json={"owner": "pallets", "repo": ""},
     )
     assert response2.status_code == 400
+
+
+# ==============================================================================
+# 5. Targeted Tests: Repo Language, Issue Requirements, Overlap & Skill Gaps
+# ==============================================================================
+
+def test_issue_labels_not_becoming_skill_gaps():
+    """
+    Verify that non-technical issue labels such as 'enhancement', 'bug', 'help wanted',
+    'good first issue', etc., are NOT classified as developer skill gaps.
+    """
+    issue = IssueItem(
+        number=42,
+        title="Add feature for streaming responses",
+        body="Feature request for streaming support.",
+        state="open",
+        html_url="https://github.com/example/repo/issues/42",
+        labels=["enhancement", "enhancement 🚀", "help wanted", "good first issue", "triage", "bug"],
+    )
+    profile = DeveloperSkillProfile(programming_languages=["Python"])
+    repo_languages = {"Python": 20000}
+
+    rec = skill_matching_service.match_issue(
+        issue=issue,
+        profile=profile,
+        analysis=None,
+        repo_languages=repo_languages,
+    )
+
+    # None of the workflow labels should appear in missing_skills (Skill Gaps)
+    missing = [s.lower() for s in rec.skill_match.missing_skills]
+    for non_tech in ["enhancement", "enhancement 🚀", "help wanted", "good first issue", "triage", "bug"]:
+        assert non_tech.lower() not in missing, f"Label '{non_tech}' incorrectly classified as skill gap!"
+
+    # Issue metadata labels must still be preserved on the issue item itself
+    assert "enhancement" in issue.labels
+    assert "enhancement 🚀" in issue.labels
+
+
+def test_repository_language_match_with_zero_requirement_overlap():
+    """
+    Verify scenario where developer knows repository language (JavaScript),
+    but the issue specifically requires TypeScript and HTML.
+    Score must be 0% (0.0) for requirement overlap, while preserving:
+    a) repository-language match (JavaScript in matched_repo_skills)
+    b) issue-requirement match (0% score)
+    c) learning opportunity clearly reported
+    """
+    issue = IssueItem(
+        number=101,
+        title="Migrate component to TypeScript",
+        body="Convert the component to TypeScript and rewrite markup with HTML5 semantic tags.",
+        state="open",
+        html_url="https://github.com/example/repo/issues/101",
+        labels=["enhancement"],
+    )
+    analysis = IssueAIAnalysis(
+        issue_type="enhancement",
+        difficulty="intermediate",
+        difficulty_rationale="Component typing migration.",
+        required_skills=["TypeScript", "HTML"],
+        skills_rationale="Requires TypeScript type definitions and HTML markup.",
+        candidate_files=[],
+        prerequisites="TypeScript 5+",
+        ai_explanation="Migration task.",
+        confidence="high",
+    )
+    # Developer knows JavaScript, repo is primarily JavaScript
+    profile = DeveloperSkillProfile(programming_languages=["JavaScript"])
+    repo_languages = {"JavaScript": 50000}
+
+    rec = skill_matching_service.match_issue(
+        issue=issue,
+        profile=profile,
+        analysis=analysis,
+        repo_languages=repo_languages,
+    )
+
+    # 1. Score is 0.0 (0% of issue requirements overlap)
+    assert rec.skill_match.score == 0.0
+
+    # 2. Issue requirement match is empty
+    assert rec.skill_match.matched_required_skills == []
+
+    # 3. Repository language match is captured
+    assert "JavaScript" in rec.skill_match.matched_repo_skills
+    assert "JavaScript" in rec.skill_match.matched_skills
+
+    # 4. Missing skills only contains true requirements
+    assert "TypeScript" in rec.skill_match.missing_skills
+    assert "HTML" in rec.skill_match.missing_skills
+    assert "Enhancement" not in rec.skill_match.missing_skills
+
+    # 5. Match reasons clearly explain the distinction
+    assert any("Repository primary language (JavaScript)" in r for r in rec.skill_match.match_reasons)
+    assert any("learning opportunity" in r.lower() for r in rec.skill_match.match_reasons)
+
+
+def test_partial_requirement_overlap():
+    """
+    Verify partial requirement match: issue requires Python, Docker, and Redis.
+    Developer has Python and Git. Score should be 1/3 (approx 0.33).
+    """
+    issue = IssueItem(
+        number=55,
+        title="Add Redis caching and containerize",
+        body="Set up Redis cache backend with Docker compose.",
+        state="open",
+        html_url="https://github.com/example/repo/issues/55",
+        labels=["feature"],
+    )
+    analysis = IssueAIAnalysis(
+        issue_type="feature",
+        difficulty="intermediate",
+        difficulty_rationale="Multi-service setup.",
+        required_skills=["Python", "Docker", "Redis"],
+        skills_rationale="Requires Python, Docker containerization, and Redis caching.",
+        candidate_files=[],
+        prerequisites="Docker installed",
+        ai_explanation="Caching feature.",
+        confidence="high",
+    )
+    profile = DeveloperSkillProfile(
+        programming_languages=["Python"],
+        tools=["Git"],
+    )
+    repo_languages = {"Python": 10000}
+
+    rec = skill_matching_service.match_issue(
+        issue=issue,
+        profile=profile,
+        analysis=analysis,
+        repo_languages=repo_languages,
+    )
+
+    # 1 out of 3 required skills matched = 0.33
+    assert rec.skill_match.score == 0.33
+    assert rec.skill_match.matched_required_skills == ["Python"]
+    assert "Docker" in rec.skill_match.missing_skills
+    assert "Redis" in rec.skill_match.missing_skills
+    assert "feature" not in [s.lower() for s in rec.skill_match.missing_skills]
+
+
+def test_full_requirement_match():
+    """
+    Verify complete requirement match: issue requires Python and Pytest.
+    Developer has both. Score should be 1.0 (100%).
+    """
+    issue = IssueItem(
+        number=77,
+        title="Add unit tests",
+        body="Write pytest test cases.",
+        state="open",
+        html_url="https://github.com/example/repo/issues/77",
+        labels=["testing"],
+    )
+    analysis = IssueAIAnalysis(
+        issue_type="testing",
+        difficulty="beginner",
+        difficulty_rationale="Standard test suite expansion.",
+        required_skills=["Python", "Pytest"],
+        skills_rationale="Requires pytest test framework.",
+        candidate_files=[],
+        prerequisites="pytest",
+        ai_explanation="Test writing.",
+        confidence="high",
+    )
+    profile = DeveloperSkillProfile(
+        programming_languages=["Python"],
+        tools=["Pytest"],
+    )
+    repo_languages = {"Python": 10000}
+
+    rec = skill_matching_service.match_issue(
+        issue=issue,
+        profile=profile,
+        analysis=analysis,
+        repo_languages=repo_languages,
+    )
+
+    assert rec.skill_match.score == 1.0
+    assert "Python" in rec.skill_match.matched_required_skills
+    assert "Pytest" in rec.skill_match.matched_required_skills
+    assert rec.skill_match.missing_skills == []
+

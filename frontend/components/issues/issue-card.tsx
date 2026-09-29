@@ -132,12 +132,12 @@ export function IssueCard({ issue, isLive = false, onViewAnalysis, onAnalyzeAI }
         {/* Action Button */}
         <div className="pt-2">
           {isLive ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => onAnalyzeAI && onAnalyzeAI(issue as GitHubIssueItem)}
-                className="flex-1 justify-center gap-1.5 text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 transition-colors"
+                className="flex-1 min-w-[130px] justify-center gap-1.5 text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 transition-colors whitespace-nowrap"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>Analyze with AI</span>
@@ -146,7 +146,7 @@ export function IssueCard({ issue, isLive = false, onViewAnalysis, onAnalyzeAI }
                 href={issueUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center px-3 h-9 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-xs font-medium transition-colors"
+                className="inline-flex items-center justify-center px-3 h-9 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-xs font-medium transition-colors shrink-0"
                 title="View Issue on GitHub"
               >
                 <ExternalLink className="h-3.5 w-3.5" />

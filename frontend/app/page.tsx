@@ -7,6 +7,7 @@ import { ErrorDisplay } from "@/components/analyzer/error-display";
 import { EmptyState } from "@/components/analyzer/empty-state";
 import { RepositoryOverview } from "@/components/repository/repository-overview";
 import { AIAnalysisSection } from "@/components/repository/ai-analysis-section";
+import { StructureExplainer } from "@/components/repository/structure-explainer";
 import { RepositoryTree } from "@/components/repository/repository-tree";
 import { TechnologyStack } from "@/components/repository/technology-stack";
 import { IssuesSection } from "@/components/issues/issues-section";
@@ -19,9 +20,15 @@ import {
   ErrorType,
   RepositoryAnalysisResponse,
   RepositoryAIAnalysisResponse,
+  StructureExplainerResponse,
   DeveloperSkillProfile,
 } from "@/types";
-import { analyzeRepository, analyzeRepositoryAI, ApiError } from "@/lib/api";
+import {
+  analyzeRepository,
+  analyzeRepositoryAI,
+  explainRepositoryStructure,
+  ApiError,
+} from "@/lib/api";
 
 
 export default function HomePage() {
@@ -62,6 +69,28 @@ export default function HomePage() {
     }
   };
 
+  // Repository Structure Explainer / Understand This Repository State
+  const [structureExplainer, setStructureExplainer] = useState<StructureExplainerResponse | null>(null);
+  const [isExplainerLoading, setIsExplainerLoading] = useState(false);
+  const [explainerError, setExplainerError] = useState<string | null>(null);
+
+  const fetchStructureExplainer = async (url: string, branch?: string) => {
+    setIsExplainerLoading(true);
+    setExplainerError(null);
+    try {
+      const result = await explainRepositoryStructure(url, branch);
+      setStructureExplainer(result);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        setExplainerError(err.message);
+      } else {
+        setExplainerError("An unexpected error occurred while generating structure explanation.");
+      }
+    } finally {
+      setIsExplainerLoading(false);
+    }
+  };
+
   const [stages, setStages] = useState<AnalysisStage[]>([
     { id: "1", label: "Validating repository URL", status: "completed" },
     { id: "2", label: "Fetching repository metadata & stats", status: "completed" },
@@ -81,6 +110,8 @@ export default function HomePage() {
     setErrorHint(undefined);
     setAiAnalysis(null);
     setAiError(null);
+    setStructureExplainer(null);
+    setExplainerError(null);
 
     // Initialize staged progression
     setStages([
@@ -137,8 +168,9 @@ export default function HomePage() {
       setAnalysisData(data);
       setRepoState("ready");
 
-      // Trigger AI analysis
+      // Trigger AI analysis and Structure Explainer
       fetchAiAnalysis(trimmed, data.repository.default_branch);
+      fetchStructureExplainer(trimmed, data.repository.default_branch);
     } catch (err: unknown) {
       clearTimeout(timer1);
       clearTimeout(timer2);
@@ -169,6 +201,9 @@ export default function HomePage() {
     setAiAnalysis(null);
     setAiError(null);
     setIsAiLoading(false);
+    setStructureExplainer(null);
+    setExplainerError(null);
+    setIsExplainerLoading(false);
     setCurrentUrl("https://github.com/fastapi/fastapi");
     setRepoState("ready");
   };
@@ -240,6 +275,22 @@ export default function HomePage() {
             onRetry={() => {
               if (analysisData?.repository) {
                 fetchAiAnalysis(currentUrl, analysisData.repository.default_branch);
+              }
+            }}
+            onSelectFile={(filePath) => {
+              scrollToSection("structure");
+            }}
+          />
+
+          {/* Repository Structure Explainer / Understand This Repository */}
+          <StructureExplainer
+            explainerResponse={structureExplainer}
+            isLoading={isExplainerLoading}
+            error={explainerError}
+            isLive={isLive}
+            onRetry={() => {
+              if (analysisData?.repository) {
+                fetchStructureExplainer(currentUrl, analysisData.repository.default_branch);
               }
             }}
             onSelectFile={(filePath) => {

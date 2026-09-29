@@ -35,4 +35,28 @@ __all__ = [
     "IssueRecommendationItem",
     "IssueRecommendationRequest",
     "IssueRecommendationResponse",
+    "StructureExplainerRequest",
+    "StructureExplainerResponse",
+    "StructureExplainerAnalysis",
+    "RepositoryOverviewDetail",
+    "DirectoryExplanationDetail",
+    "ImportantFileDetail",
+    "ArchitectureExplanation",
+    "RepositoryFlow",
+    "TechnologyMap",
+    "WhereToStartStep",
 ]
+
+from app.schemas.structure_explainer import (
+    StructureExplainerRequest,
+    StructureExplainerResponse,
+    StructureExplainerAnalysis,
+    RepositoryOverviewDetail,
+    DirectoryExplanationDetail,
+    ImportantFileDetail,
+    ArchitectureExplanation,
+    RepositoryFlow,
+    TechnologyMap,
+    WhereToStartStep,
+)
+
