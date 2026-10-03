@@ -142,14 +142,68 @@ def test_mermaid_cleaner_and_fallback():
     valid_raw = 'graph TD\n  A["User"] --> B["Backend"]'
     cleaned = clean_mermaid_diagram(valid_raw)
     assert "flowchart TD" in cleaned
-    assert 'A["User"] --> B["Backend"]' in cleaned
+    assert 'a["User"] --> b["Backend"]' in cleaned
 
     # Component list fallback
     comp_fallback = generate_fallback_mermaid(["Frontend", "API Gateway", "Database"])
     assert "flowchart TD" in comp_fallback
-    assert 'Node1["Frontend"]' in comp_fallback
-    assert 'Node2["API Gateway"]' in comp_fallback
-    assert "Node1 --> Node2" in comp_fallback
+    assert 'node_1["Frontend"]' in comp_fallback
+    assert 'node_2["API Gateway"]' in comp_fallback
+    assert "node_1 --> node_2" in comp_fallback
+
+
+def test_mermaid_problem_case_spaces_in_node_identifiers():
+    """Verify fixing the exact problem case: GitHub Actions["GitHub Actions"] --> Git["Git"]."""
+    problem_diagram = """flowchart TD
+    GitHub Actions["GitHub Actions"] --> Git["Git"]
+    Git --> Pacman["Pacman"]"""
+
+    cleaned = clean_mermaid_diagram(problem_diagram)
+    assert "flowchart TD" in cleaned
+    assert 'github_actions["GitHub Actions"] --> git["Git"]' in cleaned
+    assert 'git["Git"] --> pacman["Pacman"]' in cleaned
+    # Ensure no invalid node identifiers with spaces exist before brackets
+    assert 'GitHub Actions[' not in cleaned
+
+
+def test_mermaid_special_characters_in_labels():
+    """Verify labels with colons, quotes, parentheses, brackets, and edge descriptions."""
+    raw = """flowchart TD
+    Client["Client (Browser v1.0) & UI: Web"] -->|HTTP / JSON (REST)| Server["API Server: FastAPI [v0.110]"]
+    Server -->|"DB Query: SELECT * FROM 'users'"| DB[("PostgreSQL DB: 5432")]"""
+
+    cleaned = clean_mermaid_diagram(raw)
+    assert "flowchart TD" in cleaned
+    assert 'client["Client (Browser v1.0) & UI: Web"]' in cleaned
+    assert 'server["API Server: FastAPI [v0.110]"]' in cleaned
+    assert 'db[("PostgreSQL DB: 5432")]' in cleaned
+    assert '-->|"HTTP / JSON (REST)"|' in cleaned
+    assert "-->" in cleaned
+
+
+def test_mermaid_subgraphs_and_multihop_chains():
+    """Verify subgraphs and multi-hop node connection chains."""
+    raw = """flowchart TD
+    subgraph CI/CD Pipeline ["CI/CD Automation"]
+        gh_actions["GitHub Actions"] --> test_runner["Test Runner"]
+    end
+    A --> B --> C"""
+
+    cleaned = clean_mermaid_diagram(raw)
+    assert "flowchart TD" in cleaned
+    assert 'subgraph ci_cd_pipeline ["CI/CD Automation"]' in cleaned
+    assert 'gh_actions["GitHub Actions"] --> test_runner["Test Runner"]' in cleaned
+    assert "end" in cleaned
+    assert 'a["A"] --> b["B"] --> c["C"]' in cleaned
+
+
+def test_mermaid_markdown_code_fences_stripping():
+    """Verify markdown fences (```mermaid ... ```) are stripped and cleaned properly."""
+    raw = "```mermaid\nflowchart TD\n    Frontend[\"Frontend App\"] --> Backend[\"Backend API\"]\n```"
+    cleaned = clean_mermaid_diagram(raw)
+    assert "```" not in cleaned
+    assert "flowchart TD" in cleaned
+    assert 'frontend["Frontend App"] --> backend["Backend API"]' in cleaned
 
 
 def test_structure_explainer_endpoint_success():
@@ -310,3 +364,54 @@ async def test_service_fallback_on_llm_malformed_output():
         assert len(result.explainer.directories) >= 1
         assert "flowchart TD" in result.explainer.architecture.diagram_mermaid
         assert len(result.explainer.where_to_start) >= 4
+
+
+def test_clean_prose_from_markdown_strips_badges_and_extracts_sentences():
+    """Verify clean_prose_from_markdown strips badge links and extracts real sentences."""
+    from app.services.structure_explainer_service import clean_prose_from_markdown
+
+    badge_heavy_readme = """# Effect
+
+[![npm version](https://badge.fury.io/js/effect.svg)](https://badge.fury.io/js/effect)
+[![Discord](https://img.shields.io/discord/780826978583478302)](https://discord.gg/effect-ts)
+
+Effect is a powerful functional programming library for TypeScript designed to build robust and type-safe systems.
+
+## Getting Started
+Install via npm.
+"""
+    cleaned = clean_prose_from_markdown(badge_heavy_readme)
+    assert "[![npm version]" not in cleaned
+    assert "Effect is a powerful functional programming library" in cleaned
+
+
+@pytest.mark.asyncio
+async def test_structure_explainer_heuristic_no_badges_in_what_it_does():
+    """Verify that heuristic fallback does not put badge links into what_it_does."""
+    from app.schemas.repository import RepositoryInfo, ReadmeInfo, TreeItem
+    from app.services.structure_explainer_service import structure_explainer_service
+
+    repo = RepositoryInfo(
+        owner="Effect-TS",
+        name="effect",
+        full_name="Effect-TS/effect",
+        default_branch="main",
+        description="An ecosystem of tools to build robust applications in TypeScript.",
+    )
+    readme = ReadmeInfo(
+        name="README.md",
+        content="""# Effect\n\n[![npm version](https://badge.fury.io/js/effect.svg)](https://badge.fury.io/js/effect)\n\nEffect provides standard library primitives for functional TypeScript applications.""",
+    )
+
+    analysis = structure_explainer_service._build_heuristic_explainer(
+        repository=repo,
+        languages={"TypeScript": 50000},
+        readme=readme,
+        tree_items=[TreeItem(path="package.json", type="file", category="configuration")],
+        top_level_dirs={"src/": ["src/index.ts"]},
+        key_files=[TreeItem(path="package.json", type="file", category="configuration")],
+    )
+
+    assert "[![" not in analysis.overview.what_it_does
+    assert "Effect provides standard library primitives" in analysis.overview.what_it_does or "An ecosystem of tools" in analysis.overview.what_it_does
+

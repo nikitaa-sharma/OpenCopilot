@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Dict, List, Optional, Tuple
 import logging
 from app.core.config import settings
@@ -6,20 +7,57 @@ from app.schemas.repository import RepositoryInfo, ReadmeInfo, TreeItem
 
 logger = logging.getLogger(__name__)
 
-# Known manifest and project configuration filenames
-CONFIG_FILENAMES = {
+# Primary package manifests
+PRIMARY_MANIFEST_FILENAMES = {
     "package.json", "pyproject.toml", "cargo.toml", "go.mod", "pom.xml",
-    "build.gradle", "setup.py", "setup.cfg", "requirements.txt", "pipfile",
-    "makefile", "dockerfile", "docker-compose.yml", "docker-compose.yaml",
-    "tsconfig.json", "cmakeLists.txt", "gemfile"
+    "build.gradle", "setup.py", "requirements.txt", "gemfile", "composer.json",
+    "mix.exs", "pipfile", "setup.cfg"
 }
 
 # Known entrypoint file names and patterns
 ENTRY_POINT_FILENAMES = {
     "main.py", "app.py", "index.ts", "index.js", "main.go", "cli.py",
     "__main__.py", "server.js", "server.ts", "run.py", "wsgi.py", "asgi.py",
-    "main.rs", "lib.rs", "index.tsx", "app.tsx", "main.cpp", "main.c"
+    "main.rs", "lib.rs", "index.tsx", "app.tsx", "main.cpp", "main.c",
+    "mod.rs"
 }
+
+# Core build, container, and compilation configuration
+CORE_BUILD_CONFIG_FILENAMES = {
+    "tsconfig.json", "dockerfile", "docker-compose.yml", "docker-compose.yaml",
+    "makefile", "vite.config.ts", "vite.config.js", "next.config.js",
+    "next.config.mjs", "webpack.config.js", "cmakelists.txt"
+}
+
+# Secondary tooling, linter, formatter configs to deprioritize
+TOOLING_CONFIG_SUBSTRINGS = [
+    "oxlint", "eslint", "prettier", "knip", "typedoc", "cspell",
+    "editorconfig", "babel.config", "commitlint", "lint-staged"
+]
+
+
+def clean_markdown_for_llm_context(text: str) -> str:
+    """
+    Cleans badge markdown, image links, and HTML comments from markdown text
+    so that LLM context is rich in descriptive prose rather than noisy badge URLs.
+    """
+    if not text:
+        return ""
+    # Remove HTML comments
+    s = re.sub(r"<!--[\s\S]*?-->", "", text)
+    # Remove badge images with links [![...](...)](...)
+    s = re.sub(r"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)", "", s)
+    # Remove standalone images ![...](...)
+    s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)
+    # Remove HTML tags
+    s = re.sub(r"<[^>]+>", " ", s)
+    # Normalize multiple blank lines
+    lines = [line.strip() for line in s.splitlines()]
+    clean_lines = []
+    for line in lines:
+        if line and not (line.startswith("[![") or line.startswith("![") or "shields.io" in line or "badge.fury.io" in line):
+            clean_lines.append(line)
+    return "\n".join(clean_lines)
 
 
 class RepositoryContextBuilder:
@@ -51,27 +89,38 @@ class RepositoryContextBuilder:
         if basename.startswith("readme"):
             return (1, item.path)
 
-        # Tier 2: Configuration / Manifests
-        if basename in CONFIG_FILENAMES or item.category == "configuration":
+        # Tier 2: Primary package manifests
+        if basename in PRIMARY_MANIFEST_FILENAMES:
             return (2, item.path)
 
         # Tier 3: Known Entry points
-        if basename in ENTRY_POINT_FILENAMES:
+        if basename in ENTRY_POINT_FILENAMES or path_lower.startswith("src/index.") or path_lower.startswith("src/main.") or path_lower.startswith("src/app."):
             return (3, item.path)
 
-        # Tier 4: Core source code
+        # Tier 4: Core build / architecture config
+        if basename in CORE_BUILD_CONFIG_FILENAMES:
+            return (4, item.path)
+
+        # Tier 5: Core source code (prioritize shallower directory paths)
         if item.category == "source":
-            # Give higher priority to shallow / top-level source files
             depth = item.path.count("/")
-            return (4 + min(depth, 5), item.path)
+            return (5 + min(depth, 5), item.path)
 
-        # Tier 10: Test files
+        # Tier 12: Secondary tooling / linter / formatter configs (e.g. .oxlintrc, .prettierrc)
+        if any(tool in path_lower for tool in TOOLING_CONFIG_SUBSTRINGS):
+            return (18, item.path)
+
+        # Tier 14: General configuration
+        if item.category == "configuration":
+            return (14, item.path)
+
+        # Tier 15: Test files
         if item.category == "test":
-            return (10, item.path)
+            return (15, item.path)
 
-        # Tier 11: General documentation
+        # Tier 16: General documentation
         if item.category == "documentation":
-            return (11, item.path)
+            return (16, item.path)
 
         # Tier 20: Other files
         return (20, item.path)
@@ -80,6 +129,7 @@ class RepositoryContextBuilder:
         """
         Selects top candidate files up to max_files_in_context using priority ordering.
         Filters out directories, ignored files, and binary files.
+        Ensures source files and manifests are prioritized over secondary tool configs.
         """
         candidate_files = [
             item for item in tree
@@ -96,7 +146,6 @@ class RepositoryContextBuilder:
         Produces a concise text representation of the repository file tree.
         Excludes ignored directories and limits output to prevent prompt overflow.
         """
-        lines = []
         filtered_items = [
             item for item in tree
             if item.category != "generated_or_ignored"
@@ -105,6 +154,7 @@ class RepositoryContextBuilder:
         # Truncate if tree is very large
         display_items = filtered_items[:max_items]
 
+        lines = []
         for item in display_items:
             prefix = "[DIR] " if item.type == "directory" else "      "
             cat_label = f" ({item.category})" if item.category and item.category != "source" else ""
@@ -159,9 +209,10 @@ class RepositoryContextBuilder:
         tree_text = self.format_tree_summary(tree)
         sections.append(f"### 3. REPOSITORY FILE STRUCTURE\n```\n{tree_text}\n```")
 
-        # 4. README Section
+        # 4. README Section (Cleaned of noisy badge markup)
         if readme and readme.content:
-            readme_text = readme.content.strip()
+            cleaned_readme = clean_markdown_for_llm_context(readme.content)
+            readme_text = cleaned_readme.strip() if cleaned_readme.strip() else readme.content.strip()
             max_readme_chars = min(12000, self.max_file_chars * 2)
             if len(readme_text) > max_readme_chars:
                 readme_text = readme_text[:max_readme_chars] + "\n\n[... README truncated for brevity ...]"

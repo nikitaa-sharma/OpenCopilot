@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserPlus, Mail, Lock, User, AlertCircle, Loader2, ArrowLeft, Code2, CheckCircle2 } from "lucide-react";
+import Image from "next/image";
+import { UserPlus, Mail, Lock, User, AlertCircle, Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,8 +72,15 @@ export default function RegisterPage() {
           >
             <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to OpenSource Copilot
           </Link>
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/25 text-primary">
-            <Code2 className="h-6 w-6" />
+          <div className="relative flex h-12 w-12 items-center justify-center rounded-xl overflow-hidden shrink-0">
+            <Image
+              src="/logo_op.png"
+              alt="OpenSource Copilot logo"
+              width={48}
+              height={48}
+              className="object-contain w-full h-full"
+              priority
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Create an Account</h1>
           <p className="text-sm text-muted-foreground">

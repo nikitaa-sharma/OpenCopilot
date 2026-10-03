@@ -1,21 +1,27 @@
 import json
 import logging
 import re
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
 from app.core.config import settings
 from app.prompts.repository_analysis import (
     REPOSITORY_ANALYSIS_SYSTEM_PROMPT,
+    format_analysis_corrective_prompt,
     format_analysis_user_prompt,
 )
 from app.schemas.repository import (
     ContextStats,
+    DirectoryExplanation,
+    EntryPoint,
+    FileExplanation,
     ReadmeInfo,
     RepositoryAIAnalysis,
     RepositoryAIAnalysisResponse,
     RepositoryInfo,
     RepositoryRef,
+    TechnologyItem,
+    TestingOverview,
     TreeItem,
 )
 from app.services.github_service import github_service, parse_github_url
@@ -58,6 +64,52 @@ def sanitize_json_response(raw_text: str) -> str:
         text = text[first_brace:last_brace + 1]
 
     return text
+
+
+def extract_and_validate_analysis(parsed_dict: Any) -> RepositoryAIAnalysis:
+    """
+    Safely unwraps nested payloads (e.g. {"analysis": {...}}), ensures required field existence,
+    normalizes sub-field defaults, and validates against RepositoryAIAnalysis.
+    """
+    if not isinstance(parsed_dict, dict):
+        raise AIAnalysisValidationError(
+            f"Expected JSON object output from AI model, but received {type(parsed_dict).__name__}"
+        )
+
+    # Unwrap if nested under common wrapper keys
+    target_dict = parsed_dict
+    for key in ["analysis", "repository_analysis", "data", "result", "output"]:
+        if (
+            key in target_dict
+            and isinstance(target_dict[key], dict)
+            and ("summary" in target_dict[key] or "architecture" in target_dict[key])
+        ):
+            target_dict = target_dict[key]
+            break
+
+    # Validate required fields presence
+    required_fields = ["summary", "purpose", "architecture", "beginner_explanation", "confidence_assessment"]
+    missing = [f for f in required_fields if f not in target_dict or target_dict[f] is None]
+    if missing:
+        raise AIAnalysisValidationError(
+            f"Missing required fields in repository analysis output: {', '.join(missing)}"
+        )
+
+    # Normalize list fields if None
+    for list_field in ["technology_stack", "important_directories", "important_files", "entry_points"]:
+        if target_dict.get(list_field) is None:
+            target_dict[list_field] = []
+
+    # Normalize testing overview if missing or string
+    if target_dict.get("testing") is None:
+        target_dict["testing"] = {}
+    elif isinstance(target_dict.get("testing"), str):
+        target_dict["testing"] = {
+            "framework": target_dict["testing"],
+            "structure": "Identified in repository test suite",
+        }
+
+    return RepositoryAIAnalysis.model_validate(target_dict)
 
 
 class RepositoryAnalysisService:
@@ -152,7 +204,7 @@ class RepositoryAnalysisService:
         user_prompt = format_analysis_user_prompt(context_str)
         provider = self._get_provider()
 
-        # 8. Call LLM provider
+        # 8. Call LLM provider with bounded single corrective retry
         logger.info(f"Calling LLM provider ({settings.LLM_PROVIDER}) for {owner}/{repo}")
         raw_response = await provider.generate(
             prompt=user_prompt,
@@ -162,23 +214,50 @@ class RepositoryAnalysisService:
             json_mode=True,
         )
 
-        # 9. Safely parse and validate structured JSON
-        sanitized = sanitize_json_response(raw_response)
-        try:
-            parsed_dict = json.loads(sanitized)
-        except json.JSONDecodeError as exc:
-            logger.error(f"Malformed JSON from LLM: {exc}\nRaw output excerpt: {raw_response[:300]}")
-            raise AIAnalysisValidationError(
-                f"The AI model returned malformed output that could not be parsed as JSON: {exc}"
-            ) from exc
+        analysis: Optional[RepositoryAIAnalysis] = None
+        first_attempt_error: Optional[str] = None
 
+        # 9. Parse and validate attempt 1
         try:
-            analysis = RepositoryAIAnalysis.model_validate(parsed_dict)
-        except ValidationError as exc:
-            logger.error(f"Pydantic validation error on LLM output: {exc}")
-            raise AIAnalysisValidationError(
-                f"The AI model output did not match the expected repository analysis schema: {exc}"
-            ) from exc
+            sanitized = sanitize_json_response(raw_response)
+            parsed_dict = json.loads(sanitized)
+            analysis = extract_and_validate_analysis(parsed_dict)
+        except (json.JSONDecodeError, ValidationError, AIAnalysisValidationError) as exc:
+            first_attempt_error = str(exc)
+            logger.warning(
+                f"Initial AI repository analysis validation failed for {owner}/{repo} ({exc}). "
+                f"Attempting single bounded corrective retry..."
+            )
+
+        # If attempt 1 failed, execute exactly one corrective retry
+        if analysis is None and first_attempt_error:
+            corrective_prompt = format_analysis_corrective_prompt(
+                original_prompt=user_prompt,
+                raw_output=raw_response,
+                error_details=first_attempt_error,
+            )
+            logger.info(f"Executing corrective retry for {owner}/{repo}")
+            retry_response = await provider.generate(
+                prompt=corrective_prompt,
+                system_prompt=REPOSITORY_ANALYSIS_SYSTEM_PROMPT,
+                temperature=0.1,
+                max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
+                json_mode=True,
+            )
+
+            try:
+                sanitized_retry = sanitize_json_response(retry_response)
+                parsed_retry = json.loads(sanitized_retry)
+                analysis = extract_and_validate_analysis(parsed_retry)
+                logger.info(f"Corrective retry succeeded for {owner}/{repo}")
+            except (json.JSONDecodeError, ValidationError, AIAnalysisValidationError) as exc:
+                logger.error(
+                    f"Corrective retry also failed for {owner}/{repo}: {exc}\n"
+                    f"Raw output excerpt: {retry_response[:400]}"
+                )
+                raise AIAnalysisValidationError(
+                    f"The AI model output could not be validated against the RepositoryAIAnalysis schema after corrective retry: {exc}"
+                ) from exc
 
         # 10. Assemble and return typed response
         return RepositoryAIAnalysisResponse(

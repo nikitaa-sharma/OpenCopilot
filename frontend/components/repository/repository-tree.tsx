@@ -15,6 +15,7 @@ import {
   Copy,
   Check,
   FileBox,
+  FolderTree,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -224,13 +225,17 @@ export function RepositoryTree({ owner, repo, branch, isLive = false }: Reposito
   });
 
   // Selected node state
-  const [selectedNode, setSelectedNode] = useState<FileTreeNode>({
-    id: "routing.py",
-    name: "routing.py",
-    type: "file",
-    path: "fastapi/routing.py",
-    description: "Handles route registration, APIRouter routing logic, parameter resolution, and request dispatching.",
-  });
+  const [selectedNode, setSelectedNode] = useState<FileTreeNode | null>(
+    isLive
+      ? null
+      : {
+          id: "routing.py",
+          name: "routing.py",
+          type: "file",
+          path: "fastapi/routing.py",
+          description: "Handles route registration, APIRouter routing logic, parameter resolution, and request dispatching.",
+        }
+  );
 
   // On-demand file content state
   const [fileContent, setFileContent] = useState<FileContentResponse | null>(null);
@@ -493,11 +498,13 @@ export function RepositoryTree({ owner, repo, branch, isLive = false }: Reposito
                 <div className="space-y-1 truncate">
                   <div className="flex items-center gap-2 truncate">
                     <span className="font-mono text-sm font-bold text-foreground truncate">
-                      {selectedNode.path}
+                      {selectedNode ? selectedNode.path : "No file selected"}
                     </span>
-                    <Badge variant="outline" className="text-[10px] uppercase font-mono shrink-0">
-                      {selectedNode.type}
-                    </Badge>
+                    {selectedNode && (
+                      <Badge variant="outline" className="text-[10px] uppercase font-mono shrink-0">
+                        {selectedNode.type}
+                      </Badge>
+                    )}
                     {isLive && fileContent?.language && (
                       <Badge variant="secondary" className="text-[10px] font-mono shrink-0">
                         {fileContent.language}
@@ -513,7 +520,9 @@ export function RepositoryTree({ owner, repo, branch, isLive = false }: Reposito
                     {isLive
                       ? fileContent?.size
                         ? `File size: ${formatFileSize(fileContent.size)}`
-                        : "Source code inspection"
+                        : selectedNode
+                        ? "Source code inspection"
+                        : "Select a file to inspect"
                       : "File Role & Responsibility Breakdown"}
                   </CardDescription>
                 </div>
@@ -545,7 +554,13 @@ export function RepositoryTree({ owner, repo, branch, isLive = false }: Reposito
               {/* Live File Content Viewer */}
               {isLive ? (
                 <div>
-                  {selectedNode.type === "folder" ? (
+                  {!selectedNode ? (
+                    <div className="py-12 text-center space-y-2 text-muted-foreground">
+                      <FolderTree className="h-8 w-8 mx-auto text-muted-foreground/60" />
+                      <p className="text-sm font-medium text-foreground">No File Selected</p>
+                      <p className="text-xs">Select any file from the repository tree to inspect its code.</p>
+                    </div>
+                  ) : selectedNode.type === "folder" ? (
                     <div className="py-12 text-center space-y-2 text-muted-foreground">
                       <Folder className="h-8 w-8 mx-auto text-sky-500/80 dark:text-sky-400/80" />
                       <p className="text-sm font-medium text-foreground">Directory: {selectedNode.name}</p>
@@ -597,7 +612,7 @@ export function RepositoryTree({ owner, repo, branch, isLive = false }: Reposito
                       <span>Component Summary</span>
                     </div>
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                      {selectedNode.description ||
+                      {selectedNode?.description ||
                         "Select any file in the tree to view its role and architecture breakdown."}
                     </p>
                   </div>

@@ -4,14 +4,15 @@ from app.services.repository_context_builder import RepositoryContextBuilder
 
 
 def test_file_priority_ordering():
-    """Verify README > config > entry points > source > tests."""
+    """Verify README > manifests > entry points > configs > source > tests > linters."""
     builder = RepositoryContextBuilder(max_files_in_context=10)
 
     items = [
+        TreeItem(path=".oxlintrc.json", type="file", category="configuration"),
         TreeItem(path="tests/test_app.py", type="file", category="test"),
         TreeItem(path="src/utils.py", type="file", category="source"),
         TreeItem(path="app.py", type="file", category="source"),
-        TreeItem(path="pyproject.toml", type="file", category="configuration"),
+        TreeItem(path="package.json", type="file", category="configuration"),
         TreeItem(path="README.md", type="file", category="documentation"),
         TreeItem(path="node_modules/pkg/index.js", type="file", category="generated_or_ignored"),
     ]
@@ -23,14 +24,30 @@ def test_file_priority_ordering():
     assert "node_modules/pkg/index.js" not in paths
     # README first
     assert paths[0] == "README.md"
-    # Config second
-    assert paths[1] == "pyproject.toml"
+    # Primary manifest second
+    assert paths[1] == "package.json"
     # Entry point third
     assert paths[2] == "app.py"
     # Core source fourth
     assert paths[3] == "src/utils.py"
-    # Tests fifth
-    assert paths[4] == "tests/test_app.py"
+    # Linter .oxlintrc.json should be lower priority than source
+    assert paths.index(".oxlintrc.json") > paths.index("src/utils.py")
+
+
+def test_clean_markdown_for_llm_context():
+    """Verify badges, shield links, and HTML comments are stripped from README context."""
+    from app.services.repository_context_builder import clean_markdown_for_llm_context
+    raw_markdown = """# Effect
+
+[![npm version](https://badge.fury.io/js/effect.svg)](https://badge.fury.io/js/effect)
+[![Discord](https://img.shields.io/discord/780826978583478302?color=7389D8&label=Discord&logo=discord&logoColor=ffffff)](https://discord.gg/effect-ts)
+<!-- HTML comment -->
+Effect is a next-generation standard library for TypeScript.
+"""
+    cleaned = clean_markdown_for_llm_context(raw_markdown)
+    assert "Effect is a next-generation standard library for TypeScript." in cleaned
+    assert "[![npm version]" not in cleaned
+    assert "HTML comment" not in cleaned
 
 
 def test_max_files_limit():
@@ -92,3 +109,4 @@ def test_global_context_budget_capping():
 
     # Should cap close to max_context_chars
     assert "Total context truncated" in context or len(context) <= 600
+

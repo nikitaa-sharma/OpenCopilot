@@ -11,6 +11,162 @@ interface MermaidDiagramProps {
   title?: string;
 }
 
+const RESERVED_KEYWORDS = new Set([
+  "graph",
+  "flowchart",
+  "subgraph",
+  "end",
+  "style",
+  "classdef",
+  "class",
+  "click",
+  "direction",
+  "linkstyle",
+  "interpolate",
+]);
+
+function toSafeNodeId(rawId: string): string {
+  const s = rawId.trim();
+  if (!s) return "node";
+  let clean = s.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
+  clean = clean.replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+  if (!clean) clean = "node";
+  if (/^[0-9]/.test(clean)) clean = `n_${clean}`;
+  if (RESERVED_KEYWORDS.has(clean)) clean = `n_${clean}`;
+  return clean;
+}
+
+function sanitizeNodeToken(nodeToken: string): string {
+  const s = nodeToken.trim();
+  if (!s) return "";
+
+  const shapes: Array<[string, RegExp]> = [
+    ["cylinder", /^([^\(\[\{\<\>]+?)\s*\[\(\s*(.*?)\s*\)\]$/],
+    ["stadium", /^([^\(\[\{\<\>]+?)\s*\(\[\s*(.*?)\s*\]\)$/],
+    ["circle", /^([^\(\[\{\<\>]+?)\s*\(\(\s*(.*?)\s*\)\)$/],
+    ["rhombus", /^([^\(\[\{\<\>]+?)\s*\{\s*(.*?)\s*\}$/],
+    ["round", /^([^\(\[\{\<\>]+?)\s*\(\s*(.*?)\s*\)$/],
+    ["square", /^([^\(\[\{\<\>]+?)\s*\[\s*(.*?)\s*\]$/],
+  ];
+
+  for (const [shapeType, pattern] of shapes) {
+    const match = s.match(pattern);
+    if (match) {
+      const rawId = match[1].trim();
+      let inner = match[2].trim();
+      if (
+        (inner.startsWith('"') && inner.endsWith('"')) ||
+        (inner.startsWith("'") && inner.endsWith("'"))
+      ) {
+        inner = inner.slice(1, -1).trim();
+      }
+      const cleanLabel = inner.replace(/"/g, "'").replace(/\n/g, " ").trim() || rawId;
+      const safeId = toSafeNodeId(rawId);
+
+      if (shapeType === "cylinder") {
+        return `${safeId}[("${cleanLabel}")]`;
+      } else if (shapeType === "stadium") {
+        return `${safeId}(["${cleanLabel}"])`;
+      } else if (shapeType === "circle") {
+        return `${safeId}(("${cleanLabel}"))`;
+      } else if (shapeType === "rhombus") {
+        return `${safeId}{"${cleanLabel}"}`;
+      } else if (shapeType === "round") {
+        return `${safeId}("${cleanLabel}")`;
+      } else {
+        return `${safeId}["${cleanLabel}"]`;
+      }
+    }
+  }
+
+  const safeId = toSafeNodeId(s);
+  const cleanLabel = s.replace(/"/g, "'").replace(/\n/g, " ").trim();
+  return `${safeId}["${cleanLabel}"]`;
+}
+
+const ARROW_PATTERN = /(\s*(?:<(?:\-\-|\=\=|\-\.-)>|(?:\-\-|\=\=|\-\.-)>|(?:\-\-\-|\-\-|\=\=|\-\.-))(?:\s*\|[^|]*\|\s*)?\s*)/;
+
+export function sanitizeMermaidSyntax(raw: string): string {
+  if (!raw || !raw.trim()) return "";
+  let text = raw.trim();
+  text = text.replace(/^```(?:mermaid)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+
+  const cleanedLines: string[] = ["flowchart TD"];
+
+  for (const line of lines) {
+    if (line.startsWith("%%")) continue;
+    const lower = line.toLowerCase();
+    if (lower.startsWith("flowchart") || lower.startsWith("graph")) {
+      continue;
+    }
+    if (lower.startsWith("subgraph")) {
+      const subgraphContent = line.slice("subgraph".length).trim();
+      const subMatch = subgraphContent.match(/^([^\(\[\{\<\>]+?)\s*\[(.*?)\]$/);
+      if (subMatch) {
+        const rawSubId = subMatch[1].trim();
+        const title = subMatch[2].trim().replace(/^["']|["']$/g, "");
+        cleanedLines.push(`    subgraph ${toSafeNodeId(rawSubId)} ["${title}"]`);
+      } else {
+        cleanedLines.push(
+          `    subgraph ${toSafeNodeId(subgraphContent)} ["${subgraphContent.replace(/"/g, "'")}"]`
+        );
+      }
+      continue;
+    }
+    if (lower === "end") {
+      cleanedLines.push("    end");
+      continue;
+    }
+    if (
+      lower.startsWith("classdef") ||
+      lower.startsWith("style") ||
+      lower.startsWith("linkstyle")
+    ) {
+      cleanedLines.push(`    ${line}`);
+      continue;
+    }
+
+    const tokens = line.split(ARROW_PATTERN);
+    if (tokens.length > 1) {
+      const reconstructed: string[] = [];
+      for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i];
+        if (i % 2 === 1) {
+          const edgeMatch = token.match(/\|([^|]*)\|/);
+          if (edgeMatch) {
+            const rawLabel = edgeMatch[1].trim().replace(/^["']|["']$/g, "");
+            const cleanEdge = rawLabel.replace(/"/g, "'");
+            const prefix = token.slice(0, edgeMatch.index);
+            const suffix = token.slice((edgeMatch.index || 0) + edgeMatch[0].length);
+            reconstructed.push(`${prefix}|"${cleanEdge}"|${suffix}`);
+          } else {
+            reconstructed.push(token);
+          }
+        } else {
+          const cleanedNode = sanitizeNodeToken(token);
+          if (cleanedNode) {
+            reconstructed.push(cleanedNode);
+          }
+        }
+      }
+      cleanedLines.push(`    ${reconstructed.join("")}`);
+    } else {
+      const singleNode = sanitizeNodeToken(line);
+      if (singleNode) {
+        cleanedLines.push(`    ${singleNode}`);
+      }
+    }
+  }
+
+  return cleanedLines.join("\n");
+}
+
 export function MermaidDiagram({ chart, className = "", title }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svgContent, setSvgContent] = useState<string>("");
@@ -20,9 +176,6 @@ export function MermaidDiagram({ chart, className = "", title }: MermaidDiagramP
   const [isRendering, setIsRendering] = useState(false);
   const { resolvedTheme } = useTheme();
 
-  // Unique ID for mermaid render container
-  const diagramId = useRef(`mermaid-${Math.random().toString(36).substring(2, 9)}`);
-
   useEffect(() => {
     let isMounted = true;
     if (!chart || typeof window === "undefined") return;
@@ -31,12 +184,15 @@ export function MermaidDiagram({ chart, className = "", title }: MermaidDiagramP
       setIsRendering(true);
       setError(null);
 
+      const renderId = `mermaid-svg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
       try {
         const mermaid = (await import("mermaid")).default;
         const isDark = resolvedTheme === "dark";
 
         mermaid.initialize({
           startOnLoad: false,
+          suppressErrorRendering: true,
           theme: isDark ? "dark" : "default",
           securityLevel: "loose",
           fontFamily: "var(--font-sans, Inter, sans-serif)",
@@ -53,27 +209,45 @@ export function MermaidDiagram({ chart, className = "", title }: MermaidDiagramP
           },
         });
 
-        // Clean chart string
-        let cleanChart = chart.trim();
-        if (cleanChart.startsWith("```mermaid")) {
-          cleanChart = cleanChart.replace(/^```mermaid\s*/, "").replace(/\s*```$/, "");
-        } else if (cleanChart.startsWith("```")) {
-          cleanChart = cleanChart.replace(/^```\s*/, "").replace(/\s*```$/, "");
-        }
+        // 1. Try rendering sanitized version
+        const sanitized = sanitizeMermaidSyntax(chart);
+        const codeToRender = sanitized || chart.trim();
 
-        const id = diagramId.current;
-        const { svg } = await mermaid.render(id, cleanChart);
-        if (isMounted) {
-          setSvgContent(svg);
-          setError(null);
+        try {
+          const { svg } = await mermaid.render(renderId, codeToRender);
+          if (isMounted) {
+            setSvgContent(svg);
+            setError(null);
+          }
+        } catch (initialErr: unknown) {
+          // Bounded fallback retry with stripped fallback if needed
+          const fallback = `flowchart TD\n    user_client["User / Client"] --> core_app["Core Application"]\n    core_app --> services["Services & Modules"]\n    services --> storage["Data / Storage Layer"]`;
+          try {
+            const fallbackId = `${renderId}-fb`;
+            const { svg: fbSvg } = await mermaid.render(fallbackId, fallback);
+            if (isMounted) {
+              setSvgContent(fbSvg);
+              setError(null);
+            }
+          } catch {
+            const errMsg = initialErr instanceof Error ? initialErr.message : String(initialErr);
+            if (isMounted) {
+              setError(errMsg);
+            }
+          }
         }
       } catch (err: unknown) {
         if (isMounted) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          console.warn("Mermaid rendering error:", errMsg);
+          console.warn("Mermaid initialization error:", errMsg);
           setError(errMsg);
         }
       } finally {
+        // Clean up any stray error elements created in document body
+        const strayEl = document.getElementById(`d${renderId}`);
+        if (strayEl) {
+          strayEl.remove();
+        }
         if (isMounted) {
           setIsRendering(false);
         }
@@ -93,7 +267,7 @@ export function MermaidDiagram({ chart, className = "", title }: MermaidDiagramP
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch {
-      // fallback
+      // clipboard fallback
     }
   };
 

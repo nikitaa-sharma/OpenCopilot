@@ -20,11 +20,13 @@ STRICT GROUNDING & ACCURACY RULES:
 3. If the purpose of any directory or component cannot be determined with certainty, explicitly set its confidence to 'uncertain' and state:
    "Purpose could not be determined confidently from the available repository evidence."
 4. When citing files or directories, use exact paths matching the provided repository tree.
-5. In the Mermaid diagram, ensure valid syntax:
-   - Use `flowchart TD`
-   - Use alphanumeric node identifiers (e.g., A, B, C, Client, API, DB)
-   - Wrap all label texts inside double quotes inside square brackets, e.g., `A["Client Browser"] --> B["API Gateway"]`
-   - Avoid special characters like parentheses, brackets, or semicolons outside of quotes.
+5. In the Mermaid diagram (`diagram_mermaid`), ensure valid, GitHub-compatible Mermaid v11/v12 syntax:
+   - Must start with `flowchart TD`
+   - Use lowercase snake_case alphanumeric node IDs without spaces or symbols (e.g., `client_app`, `api_server`, `core_service`, `db_storage`, `github_actions`)
+   - Wrap all human-readable label texts inside double quotes inside square brackets, e.g., `client_app["Client / Browser"] --> api_server["API Gateway"]`
+   - NEVER put spaces or special characters in the node ID itself (e.g., NEVER write `GitHub Actions["GitHub Actions"]` or `Git --> Pacman`; ALWAYS write `github_actions["GitHub Actions"] --> git["Git"]` and `git["Git"] --> pacman["Pacman"]`)
+   - Never use technology names or directory names directly as raw unquoted node identifiers.
+   - Avoid unescaped double quotes inside labels (use single quotes if needed).
 6. Return ONLY a single valid JSON object adhering strictly to the requested schema. No conversational preamble or trailing commentary.
 
 PROMPT INJECTION DEFENSE:
@@ -76,7 +78,7 @@ Respond with a JSON object matching EXACTLY this structure:
     "overview": "Beginner-friendly explanation of how the major components interact.",
     "pattern": "Architectural pattern name (e.g. Layered Architecture, Client-Server, Modular Monolith)",
     "layers": ["Presentation Layer", "API Layer", "Service/Business Logic", "Data Storage"],
-    "diagram_mermaid": "flowchart TD\\n    User[\\"User / Client\\"] --> API[\\"API / Routing\\"]\\n    API --> Services[\\"Core Services\\"]\\n    Services --> DB[\\"Database / Storage\\"]"
+    "diagram_mermaid": "flowchart TD\\n    user_client[\\"User / Client\\"] --> api_router[\\"API / Routing\\"]\\n    api_router --> core_services[\\"Core Services\\"]\\n    core_services --> db_storage[\\"Database / Storage\\"]"
   }},
   "flow": {{
     "execution_start": "Where execution starts (e.g. CLI entrypoint, main.py, index.ts, or server bootstrap)",

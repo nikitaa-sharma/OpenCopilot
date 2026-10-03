@@ -40,10 +40,41 @@ from app.services.github_service import github_service, parse_github_url
 from app.services.llm_factory import get_llm_provider
 from app.services.llm_provider import LLMProvider
 from app.services.repository_analysis_service import sanitize_json_response
+from app.services.repository_context_builder import clean_markdown_for_llm_context
 from app.services.repository_file_filter import classify_file, detect_language
 from app.services.repository_ingestion_service import repository_ingestion_service
 
 logger = logging.getLogger(__name__)
+
+
+def clean_prose_from_markdown(text: str) -> str:
+    """
+    Strips badges, image links, HTML tags, and markdown headers to extract clean,
+    human-readable sentences from a README or documentation markdown.
+    """
+    if not text:
+        return ""
+    # 1. Remove HTML comments
+    s = re.sub(r"<!--[\s\S]*?-->", "", text)
+    # 2. Remove badge images with links [![...](...)](...)
+    s = re.sub(r"\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)", "", s)
+    # 3. Remove standalone images ![...](...)
+    s = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", s)
+    # 4. Remove standalone badge URLs
+    s = re.sub(r"https?://(?:img\.shields\.io|badge\.fury\.io|codecov\.io|github\.com/[^/]+/[^/]+/workflows|actions/workflows)[^\s\)\"\']*", "", s)
+    # 5. Remove HTML tags
+    s = re.sub(r"<[^>]+>", " ", s)
+    # 6. Remove markdown header markers (#, ##, etc.)
+    s = re.sub(r"^\s*#+\s*", "", s, flags=re.MULTILINE)
+    # 7. Remove blockquote markers
+    s = re.sub(r"^\s*>\s*", "", s, flags=re.MULTILINE)
+
+    lines = [line.strip() for line in s.splitlines()]
+    meaningful_lines = []
+    for line in lines:
+        if line and not (line.startswith("[") and line.endswith(")")) and not line.startswith("http"):
+            meaningful_lines.append(line)
+    return "\n\n".join(meaningful_lines)
 
 # Known manifest filenames
 MANIFEST_FILENAMES = {
@@ -87,43 +118,173 @@ ENTRYPOINT_PATTERNS = [
 ]
 
 
+RESERVED_MERMAID_KEYWORDS = {
+    "graph",
+    "flowchart",
+    "subgraph",
+    "end",
+    "style",
+    "classdef",
+    "class",
+    "click",
+    "direction",
+    "linkstyle",
+    "interpolate",
+}
+
+ARROW_PATTERN = re.compile(
+    r'(\s*(?:<(?:\-\-|\=\=|\-\.-)>|(?:\-\-|\=\=|\-\.-)>|(?:\-\-\-|\-\-|\=\=|\-\.-))(?:\s*\|[^|]*\|\s*)?\s*)'
+)
+
+
+def to_safe_node_id(raw_id: str) -> str:
+    """
+    Transforms any arbitrary identifier (technology, directory, name with spaces)
+    into a safe, deterministic snake_case Mermaid node ID.
+    """
+    s = raw_id.strip()
+    if not s:
+        return "node"
+    clean = re.sub(r"[^a-zA-Z0-9_]", "_", s).lower()
+    clean = re.sub(r"_+", "_", clean).strip("_")
+    if not clean:
+        clean = "node"
+    if clean[0].isdigit():
+        clean = f"n_{clean}"
+    if clean in RESERVED_MERMAID_KEYWORDS:
+        clean = f"n_{clean}"
+    return clean
+
+
+def sanitize_node_expression(node_token: str) -> str:
+    """
+    Parses a single node token (with or without brackets/shapes) and converts it to:
+    safe_node_id["Sanitized Human-Readable Label"]
+    """
+    s = node_token.strip()
+    if not s:
+        return ""
+
+    for shape_type, pattern in [
+        ("cylinder", re.compile(r'^([^\(\[\{\<\>]+?)\s*\[\(\s*(.*?)\s*\)\]$')),
+        ("stadium", re.compile(r'^([^\(\[\{\<\>]+?)\s*\(\[\s*(.*?)\s*\]\)$')),
+        ("circle", re.compile(r'^([^\(\[\{\<\>]+?)\s*\(\(\s*(.*?)\s*\)\)$')),
+        ("rhombus", re.compile(r'^([^\(\[\{\<\>]+?)\s*\{\s*(.*?)\s*\}$')),
+        ("round", re.compile(r'^([^\(\[\{\<\>]+?)\s*\(\s*(.*?)\s*\)$')),
+        ("square", re.compile(r'^([^\(\[\{\<\>]+?)\s*\[\s*(.*?)\s*\]$')),
+    ]:
+        match = pattern.match(s)
+        if match:
+            raw_id = match.group(1).strip()
+            inner = match.group(2).strip()
+            if (inner.startswith('"') and inner.endswith('"')) or (inner.startswith("'") and inner.endswith("'")):
+                inner = inner[1:-1].strip()
+            clean_label = inner.replace('"', "'").replace("\n", " ").strip()
+            safe_id = to_safe_node_id(raw_id)
+            if not clean_label:
+                clean_label = raw_id
+
+            if shape_type == "cylinder":
+                return f'{safe_id}[("{clean_label}")]'
+            elif shape_type == "stadium":
+                return f'{safe_id}(["{clean_label}"])'
+            elif shape_type == "circle":
+                return f'{safe_id}(("{clean_label}"))'
+            elif shape_type == "rhombus":
+                return f'{safe_id}{{"{clean_label}"}}'
+            elif shape_type == "round":
+                return f'{safe_id}("{clean_label}")'
+            else:
+                return f'{safe_id}["{clean_label}"]'
+
+    safe_id = to_safe_node_id(s)
+    clean_label = s.replace('"', "'").replace("\n", " ").strip()
+    return f'{safe_id}["{clean_label}"]'
+
+
+def sanitize_mermaid_diagram_line(line: str) -> Optional[str]:
+    """
+    Sanitizes a single line of Mermaid code.
+    Preserves directives, subgraphs, and fixes node definitions on arrow lines.
+    """
+    stripped = line.strip()
+    if not stripped or stripped.startswith("%%"):
+        return None
+
+    lower = stripped.lower()
+
+    if lower.startswith("flowchart") or lower.startswith("graph"):
+        return "flowchart TD"
+
+    if lower.startswith("subgraph"):
+        subgraph_content = stripped[len("subgraph"):].strip()
+        sub_match = re.match(r'^([^\(\[\{\<\>]+?)\s*\[(.*?)\]$', subgraph_content)
+        if sub_match:
+            raw_sub_id = sub_match.group(1).strip()
+            title = sub_match.group(2).strip().strip('"\'')
+            safe_sub_id = to_safe_node_id(raw_sub_id)
+            return f'subgraph {safe_sub_id} ["{title}"]'
+        else:
+            safe_sub_id = to_safe_node_id(subgraph_content)
+            title = subgraph_content.replace('"', "'")
+            return f'subgraph {safe_sub_id} ["{title}"]'
+
+    if lower == "end":
+        return "end"
+
+    if lower.startswith("classdef") or lower.startswith("style") or lower.startswith("linkstyle"):
+        return stripped
+
+    tokens = ARROW_PATTERN.split(stripped)
+    if len(tokens) > 1:
+        reconstructed = []
+        for idx, token in enumerate(tokens):
+            if idx % 2 == 1:
+                arrow_text = token
+                edge_label_match = re.search(r'\|([^|]*)\|', arrow_text)
+                if edge_label_match:
+                    raw_edge_label = edge_label_match.group(1).strip().strip('"\'')
+                    clean_edge_label = raw_edge_label.replace('"', "'")
+                    arrow_prefix = arrow_text[:edge_label_match.start()]
+                    arrow_suffix = arrow_text[edge_label_match.end():]
+                    arrow_text = f'{arrow_prefix}|"{clean_edge_label}"|{arrow_suffix}'
+                reconstructed.append(arrow_text)
+            else:
+                cleaned_node = sanitize_node_expression(token)
+                if cleaned_node:
+                    reconstructed.append(cleaned_node)
+        return "".join(reconstructed)
+
+    return sanitize_node_expression(stripped)
+
+
 def clean_mermaid_diagram(raw_mermaid: str, fallback_components: Optional[List[str]] = None) -> str:
     """
     Ensures the Mermaid diagram is valid, clean, and GitHub-compatible.
-    Normalizes to 'flowchart TD' and sanitizes node syntax.
+    Normalizes to 'flowchart TD' and sanitizes node syntax, spaces, and labels.
     """
     if not raw_mermaid or not raw_mermaid.strip():
         return generate_fallback_mermaid(fallback_components)
 
     text = raw_mermaid.strip()
-    # Strip markdown code fences if present
     match = re.search(r"```(?:mermaid)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
     if match:
         text = match.group(1).strip()
 
-    # Ensure header exists
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
+    raw_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not raw_lines:
         return generate_fallback_mermaid(fallback_components)
 
-    first_line = lines[0].lower()
-    if not (first_line.startswith("flowchart") or first_line.startswith("graph")):
-        lines.insert(0, "flowchart TD")
-    elif first_line.startswith("graph"):
-        # Normalize graph TD to flowchart TD
-        lines[0] = "flowchart TD"
+    cleaned_lines = ["flowchart TD"]
+    for line in raw_lines:
+        cleaned_line = sanitize_mermaid_diagram_line(line)
+        if cleaned_line and cleaned_line != "flowchart TD":
+            cleaned_lines.append(f"    {cleaned_line}")
 
-    cleaned_lines = [lines[0]]
-    for line in lines[1:]:
-        # Remove any stray backticks or html comments
-        cleaned = re.sub(r"<!--.*?-->", "", line)
-        cleaned = cleaned.replace("`", "").strip()
-        if not cleaned:
-            continue
-        cleaned_lines.append(f"    {cleaned}")
+    if len(cleaned_lines) <= 1:
+        return generate_fallback_mermaid(fallback_components)
 
     result = "\n".join(cleaned_lines)
-    # Check if there are valid connections (-->)
     if "-->" not in result and "---" not in result:
         return generate_fallback_mermaid(fallback_components)
 
@@ -137,21 +298,20 @@ def generate_fallback_mermaid(components: Optional[List[str]] = None) -> str:
     if not components or len(components) < 2:
         return (
             "flowchart TD\n"
-            '    User["User / Client"] --> Entry["Entry Point"]\n'
-            '    Entry --> Core["Core Application Logic"]\n'
-            '    Core --> Services["Services & Modules"]\n'
-            '    Services --> Storage["Data / Storage Layer"]'
+            '    user_client["User / Client"] --> entry_point["Entry Point"]\n'
+            '    entry_point --> core_logic["Core Application Logic"]\n'
+            '    core_logic --> services["Services & Modules"]\n'
+            '    services --> storage["Data / Storage Layer"]'
         )
 
-    # Build sequential or layered connections from components
     nodes = []
     edges = []
     for idx, comp in enumerate(components[:6]):
-        node_id = f"Node{idx+1}"
-        safe_label = comp.replace('"', "'")
-        nodes.append(f'    {node_id}["{safe_label}"]')
+        safe_id = f"node_{idx+1}"
+        safe_label = comp.replace('"', "'").strip()
+        nodes.append(f'    {safe_id}["{safe_label}"]')
         if idx > 0:
-            edges.append(f"    Node{idx} --> Node{idx+1}")
+            edges.append(f"    node_{idx} --> node_{idx+1}")
 
     return "flowchart TD\n" + "\n".join(nodes) + "\n" + "\n".join(edges)
 
@@ -247,6 +407,17 @@ class StructureExplainerService:
                 explainer_analysis.architecture.diagram_mermaid,
                 explainer_analysis.architecture.layers,
             )
+            # Sanitize overview prose to ensure no badge markdown leaked into overview
+            if "[![" in explainer_analysis.overview.what_it_does or "![" in explainer_analysis.overview.what_it_does:
+                cleaned_what = clean_prose_from_markdown(explainer_analysis.overview.what_it_does)
+                if cleaned_what:
+                    explainer_analysis.overview.what_it_does = cleaned_what
+                elif repository_info.description:
+                    explainer_analysis.overview.what_it_does = repository_info.description
+            if "[![" in explainer_analysis.overview.main_purpose or "![" in explainer_analysis.overview.main_purpose:
+                cleaned_purpose = clean_prose_from_markdown(explainer_analysis.overview.main_purpose)
+                if cleaned_purpose:
+                    explainer_analysis.overview.main_purpose = cleaned_purpose
         except Exception as exc:
             logger.warning(
                 f"LLM generation/validation failed for structure explainer ({exc}). Building grounded heuristic fallback."
@@ -424,9 +595,11 @@ class StructureExplainerService:
             tree_summary += f"\n... [{len(tree_items) - 80} more files omitted for length]"
         sections.append(f"REPOSITORY FILE TREE (SAMPLE):\n{tree_summary}")
 
-        # 5. README Excerpt
+        # 5. README Excerpt (Cleaned of noisy badge markup)
         if readme and readme.content:
-            sections.append(f"README ({readme.name}) EXCERPT:\n{readme.content[:3500]}")
+            cleaned_readme = clean_markdown_for_llm_context(readme.content)
+            readme_sample = cleaned_readme.strip() if cleaned_readme.strip() else readme.content.strip()
+            sections.append(f"README ({readme.name}) EXCERPT:\n{readme_sample[:3500]}")
 
         # 6. Priority file excerpts
         if file_contents:
@@ -476,10 +649,15 @@ class StructureExplainerService:
 
         # Overview
         what_it_does = repository.description or f"{repository.full_name} is an open-source project written primarily in {primary_lang}."
-        if readme and readme.content and len(readme.content) > 40:
-            first_para = readme.content.strip().split("\n\n")[0].replace("#", "").strip()
-            if len(first_para) > 30:
-                what_it_does = first_para[:250]
+        if readme and readme.content:
+            cleaned_prose = clean_prose_from_markdown(readme.content)
+            paras = [p.strip() for p in cleaned_prose.split("\n\n") if len(p.strip()) > 20]
+            for para in paras:
+                lower_p = para.lower()
+                # Skip headings, badges, or table of contents lines
+                if not lower_p.startswith("table of contents") and not lower_p.startswith("license") and not lower_p.startswith("http"):
+                    what_it_does = para[:300].strip()
+                    break
 
         # Directory Explorer
         dir_details: List[DirectoryExplanationDetail] = []

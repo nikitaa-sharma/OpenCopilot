@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Code2, Github, Menu, X, User, LogIn, LogOut, Loader2 } from "lucide-react";
+import Image from "next/image";
+import { Github, Menu, X, User, LogIn, LogOut, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
@@ -27,8 +28,15 @@ export function Navbar() {
       <div className="container mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center space-x-2.5 group">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 border border-primary/25 text-primary group-hover:bg-primary/20 transition-colors">
-            <Code2 className="h-5 w-5" />
+          <div className="relative flex h-9 w-9 items-center justify-center rounded-lg overflow-hidden shrink-0">
+            <Image
+              src="/logo_op.png"
+              alt="OpenSource Copilot logo"
+              width={36}
+              height={36}
+              className="object-contain w-full h-full"
+              priority
+            />
           </div>
           <div className="flex items-center space-x-2">
             <span className="font-bold text-base sm:text-lg tracking-tight">OpenSource Copilot</span>

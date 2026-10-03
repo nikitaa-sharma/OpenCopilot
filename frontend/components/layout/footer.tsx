@@ -1,4 +1,4 @@
-import { GitPullRequest, Heart } from "lucide-react";
+import Image from "next/image";
 
 export function Footer() {
   return (
@@ -6,8 +6,14 @@ export function Footer() {
       <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center space-x-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <GitPullRequest className="h-4 w-4" />
+            <div className="relative flex h-7 w-7 items-center justify-center rounded-md overflow-hidden shrink-0">
+              <Image
+                src="/logo_op.png"
+                alt="OpenSource Copilot logo"
+                width={28}
+                height={28}
+                className="object-contain w-full h-full"
+              />
             </div>
             <span className="font-semibold text-sm">OpenSource Copilot</span>
             <span className="text-xs text-muted-foreground">— AI Contribution Assistant</span>
