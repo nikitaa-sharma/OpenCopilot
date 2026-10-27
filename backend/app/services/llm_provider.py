@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Dict, List, Optional
 import httpx
 import logging
 from app.core.config import settings
@@ -65,6 +65,7 @@ class LLMProvider(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         json_mode: bool = False,
+        history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         """
         Generate text completion from a prompt.
@@ -116,6 +117,7 @@ class OllamaProvider(LLMProvider):
         model: Optional[str] = None,
         timeout: Optional[float] = None,
     ):
+        self.name = "ollama"
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
         self.model = model or settings.OLLAMA_MODEL
         self.timeout = timeout or settings.LLM_REQUEST_TIMEOUT
@@ -127,6 +129,7 @@ class OllamaProvider(LLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         json_mode: bool = False,
+        history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         url = f"{self.base_url}/api/generate"
         payload = {
@@ -206,6 +209,7 @@ class OpenAICompatibleProvider(LLMProvider):
         model: Optional[str] = None,
         timeout: Optional[float] = None,
     ):
+        self.name = "openai"
         self.api_key = api_key or settings.LLM_API_KEY
         self.base_url = (base_url or settings.LLM_BASE_URL).rstrip("/")
         self.model = model or settings.LLM_MODEL
@@ -218,6 +222,7 @@ class OpenAICompatibleProvider(LLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         json_mode: bool = False,
+        history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         if not self.api_key:
             raise LLMProviderUnavailableError(
@@ -236,6 +241,12 @@ class OpenAICompatibleProvider(LLMProvider):
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        if history and isinstance(history, list):
+            for item in history[-6:]:
+                if isinstance(item, dict) and "role" in item and "content" in item:
+                    role = item["role"]
+                    if role in ("user", "assistant"):
+                        messages.append({"role": role, "content": str(item["content"])})
         messages.append({"role": "user", "content": prompt})
 
         payload = {
@@ -302,3 +313,8 @@ class OpenAICompatibleProvider(LLMProvider):
         from app.embeddings.factory import get_embedding_provider
         provider = get_embedding_provider()
         return provider.embed_documents(texts)
+
+
+# Re-export SarvamProvider for convenient import
+from app.services.sarvam_provider import SarvamProvider
+

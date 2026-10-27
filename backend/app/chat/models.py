@@ -4,7 +4,7 @@ Decoupled from database ORM models and external API schemas.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -15,6 +15,7 @@ class ChatQuestion:
     question: str
     branch: Optional[str] = None
     top_k: Optional[int] = None
+    history: Optional[List[Dict[str, str]]] = None
 
     @property
     def repository_identifier(self) -> str:

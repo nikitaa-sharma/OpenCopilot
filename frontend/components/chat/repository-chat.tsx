@@ -80,12 +80,19 @@ export function RepositoryChat({
     setIsLoading(true);
 
     try {
-      // Call Phase 9 backend repository chat API
+      const recentHistory = messages
+        .filter((m) => m.id !== "welcome-msg")
+        .slice(-6)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      // Call backend repository chat API with Sarvam AI
       const response = await chatWithRepository(
         effectiveOwner,
         effectiveRepo,
         trimmed,
-        branch
+        branch,
+        undefined,
+        recentHistory
       );
 
       const assistantMsg: ChatMessage = {
@@ -178,11 +185,9 @@ export function RepositoryChat({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-[10px] font-mono">
-                Model: Ollama (Local)
+              <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
+                Model: Sarvam AI (sarvam-105b)
               </Badge>
-            </div>
           </CardHeader>
 
           {/* Error Banner */}
@@ -304,7 +309,7 @@ export function RepositoryChat({
                 </div>
                 <div className="bg-secondary/70 border border-border/80 rounded-xl p-4 text-xs sm:text-sm text-muted-foreground flex items-center gap-2.5">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span>Searching repository context and generating response with Ollama...</span>
+                  <span>Searching repository context and reasoning with Sarvam AI...</span>
                 </div>
               </div>
             )}

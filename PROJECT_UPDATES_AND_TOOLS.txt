@@ -1,0 +1,387 @@
+================================================================================
+  OPENCOPILOT — PROJECT UPDATES & OPEN SOURCE TOOLS REFERENCE
+================================================================================
+  Generated: October 27, 2026
+  Project:   OpenSource Copilot — AI Contribution Assistant
+  Repository: https://github.com/your-org/opencopilot
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 1: FEATURE UPDATES — SARVAM AI RAG CHAT INTEGRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1.1  WHAT CHANGED
+    The existing "Ask About This Repository" RAG chat was powered by Ollama
+    (llama3.2:3b) as the sole LLM provider. This update replaced the chat
+    LLM with Sarvam AI (sarvam-105b) while keeping pgvector retrieval intact.
+
+1.2  NEW FILES CREATED
+    • backend/app/services/sarvam_provider.py
+        — SarvamProvider class implementing the LLMProvider abstract interface.
+        — Talks to the Sarvam AI chat-completions API (https://api.sarvam.ai/v1).
+        — Supports conversation history, JSON mode, and configurable temperature.
+
+    • backend/app/services/llm_factory.py
+        — Centralized factory function: get_llm_provider(provider_name).
+        — Resolves "sarvam", "ollama", "openai", or "groq" into concrete
+          LLMProvider instances based on environment configuration.
+
+1.3  FILES MODIFIED
+    • backend/app/core/config.py
+        — Added granular provider routing settings:
+            CHAT_LLM_PROVIDER = "sarvam"
+            ANALYSIS_LLM_PROVIDER = "ollama"
+            STRUCTURE_EXPLAINER_LLM_PROVIDER = "ollama"
+        — Added Sarvam-specific config fields:
+            SARVAM_API_KEY, SARVAM_BASE_URL, SARVAM_CHAT_MODEL
+
+    • backend/app/chat/service.py
+        — RepositoryChatService now resolves its LLM provider via
+          settings.CHAT_LLM_PROVIDER (defaults to "sarvam").
+        — All existing RAG retrieval, source validation, and JSON parsing
+          logic is preserved unchanged.
+
+    • backend/app/services/repository_analysis_service.py
+        — Explicitly routes through ANALYSIS_LLM_PROVIDER = "ollama".
+
+    • backend/app/services/structure_explainer_service.py
+        — Explicitly routes through STRUCTURE_EXPLAINER_LLM_PROVIDER = "ollama".
+
+    • backend/app/services/llm_provider.py
+        — Added .name attribute to OllamaProvider and OpenAICompatibleProvider.
+        — Re-exported SarvamProvider for convenient import.
+
+    • backend/.env / backend/.env.example
+        — Added all Sarvam environment variables (API key, model, base URL).
+        — Documented per-feature provider routing variables.
+
+1.4  PROVIDER ROUTING SUMMARY
+
+    ┌─────────────────────────────┬──────────────┬──────────────────────┐
+    │  Feature                    │  Provider    │  Model               │
+    ├─────────────────────────────┼──────────────┼──────────────────────┤
+    │  RAG Repository Chat        │  Sarvam AI   │  sarvam-105b         │
+    │  AI Repository Analysis     │  Ollama      │  llama3.2:3b         │
+    │  Repository Structure       │  Ollama      │  llama3.2:3b         │
+    │  Contribution Guide         │  Ollama      │  llama3.2:3b         │
+    │  Voice Agent Chat           │  Sarvam AI   │  sarvam-105b         │
+    │  Voice Agent STT            │  Sarvam AI   │  saaras:v2.5         │
+    │  Voice Agent TTS            │  Sarvam AI   │  bulbul:v3 (kavya)   │
+    └─────────────────────────────┴──────────────┴──────────────────────┘
+
+1.5  RAG PIPELINE (UNCHANGED)
+    The retrieval pipeline is fully preserved:
+      → User question
+      → Sentence Transformers (BAAI/bge-small-en-v1.5) generates query embedding
+      → pgvector cosine similarity search (384-dim vectors)
+      → Keyword fallback if no vector results
+      → Bounded context window assembled
+      → Sarvam AI generates grounded answer with verified file citations
+      → Source validation strips hallucinated paths
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 2: FEATURE UPDATES — FLOATING LIVEKIT VOICE AGENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+2.1  WHAT WAS ADDED
+    A fully functional floating voice assistant that enables developers to
+    ask questions about a repository using their voice. The assistant uses
+    Sarvam AI for speech-to-text, chat reasoning, and text-to-speech,
+    orchestrated by LiveKit Agents with Silero VAD for voice activity detection.
+
+2.2  BACKEND FILES CREATED
+    • backend/app/voice/__init__.py
+        — Package initializer for the voice module.
+
+    • backend/app/voice/agent.py
+        — Main voice agent entrypoint (voice_agent_entrypoint).
+        — Integrates: Silero VAD → Sarvam STT → Sarvam LLM → Sarvam TTS.
+        — Implements search_repository function tool for RAG retrieval.
+        — Publishes real-time transcripts over LiveKit data channel.
+        — Extracts repository metadata from room/participant metadata.
+        — Includes error handlers, reconnection events, and VAD pre-warming.
+
+    • backend/app/voice/worker.py
+        — CLI entrypoint: python -m app.voice.worker dev
+        — Validates LiveKit credentials before starting.
+        — Registers prewarm_vad in WorkerOptions for fast cold-start.
+
+    • backend/app/api/v1/endpoints/voice.py
+        — POST /api/v1/voice/token endpoint.
+        — Generates LiveKit participant tokens with repository metadata.
+        — Returns server URL and token for frontend WebRTC connection.
+        — Returns 503 if LiveKit/Sarvam credentials are missing.
+
+2.3  FRONTEND FILES CREATED
+    • frontend/context/voice-assistant-context.tsx
+        — VoiceAssistantProvider React context with full session lifecycle.
+        — Manages: microphone access, LiveKit Room connection, audio playback,
+          mute/unmute, transcript collection, audio level visualization.
+        — Handles events: TrackSubscribed, ActiveSpeakersChanged,
+          DataReceived, Reconnecting, Reconnected, Disconnected.
+        — Robust error handling for: permission denied, unsupported browser,
+          unconfigured backend, and connection failures.
+
+    • frontend/components/voice/floating-voice-assistant.tsx
+        — Floating circular button with animated audio visualizer ring.
+        — Expandable chat panel with scrolling transcript display.
+        — Status indicators: disconnected, connecting, listening, speaking.
+        — Mute/unmute toggle and session start/end controls.
+        — Matches existing dark-themed design language.
+
+2.4  BACKEND FILES MODIFIED
+    • backend/app/core/config.py
+        — Added LiveKit settings: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
+        — Added Sarvam voice settings: SARVAM_STT_MODEL, SARVAM_TTS_MODEL,
+          SARVAM_TTS_SPEAKER, SARVAM_TTS_SAMPLE_RATE.
+        — Added VOICE_SESSION_TIMEOUT_SECONDS.
+
+    • backend/app/main.py
+        — Registered voice router under /api/v1/voice prefix.
+
+    • backend/requirements.txt
+        — Added: livekit, livekit-agents, livekit-api, livekit-plugins-sarvam,
+          livekit-plugins-silero, sarvamai.
+
+2.5  FRONTEND FILES MODIFIED
+    • frontend/package.json
+        — Added: livekit-client (^2.23.0).
+
+    • frontend/lib/api.ts
+        — Added fetchVoiceToken() function for POST /api/v1/voice/token.
+
+    • frontend/app/layout.tsx
+        — Wrapped children with VoiceAssistantProvider.
+        — Added FloatingVoiceAssistant component at root layout level.
+
+2.6  VOICE PIPELINE ARCHITECTURE
+
+    User speaks into microphone
+      → WebRTC audio stream to LiveKit Cloud (India South region)
+      → Silero VAD detects speech boundaries
+      → Sarvam STT (saaras:v2.5) transcribes speech to text
+      → Sarvam LLM (sarvam-105b) generates response
+        ↳ search_repository tool: queries pgvector/keyword RAG
+      → Sarvam TTS (bulbul:v3, speaker: kavya, 24kHz) synthesizes speech
+      → WebRTC audio stream back to browser
+      → Real-time transcript published over LiveKit data channel
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 3: BUG FIXES & RELIABILITY IMPROVEMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+3.1  SARVAM TTS MODEL DEPRECATION FIX
+    • Problem: Sarvam AI deprecated model "bulbul:v2" (with speaker "anushka"),
+      causing HTTP 400 errors and LiveKit ChanClosed channel exceptions.
+    • Fix: Upgraded to "bulbul:v3" with compatible speaker "kavya" and
+      standard sample rate 24000 Hz.
+
+3.2  WINDOWS LIVEKIT NATIVE RESAMPLER CRASH MITIGATION
+    • Problem: Microsoft Visual C++ runtime assertion failure in
+      livekit_ffi.dll (soxr-sys/fft4g_cache.h, line 13: LSX_FFT_BR == NULL).
+    • Fix: Running voice worker in "dev" mode avoids multi-process IPC
+      supervisor ping timeouts and socket reuse collisions on Windows.
+      Added VAD pre-warming (prewarm_fnc) to prevent audio stream init delays.
+
+3.3  RESILIENT SESSION ERROR HANDLING
+    • Added comprehensive error event handlers on the voice session.
+    • TTS-related errors do not trigger cascading audio synthesis failures.
+    • Auto-reconnection events (Reconnecting, Reconnected) propagated to
+      the frontend status indicators.
+    • Room disconnection triggers clean session teardown.
+
+3.4  TEST COVERAGE
+    • Added backend/tests/test_voice_agent.py with regression tests for:
+        — TTS model and speaker compatibility validation.
+        — VAD pre-warming function behavior.
+        — Sample rate configuration validation.
+    • Full test suite: 387 tests passed successfully.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 4: OPEN SOURCE TOOLS & TECHNOLOGIES USED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+4.1  FRONTEND OPEN SOURCE TOOLS
+
+    ┌──────────────────────────────┬──────────────────────────────────────────┐
+    │  Tool / Library              │  Purpose                                 │
+    ├──────────────────────────────┼──────────────────────────────────────────┤
+    │  Next.js 14 (App Router)     │  React framework, SSR, routing           │
+    │  React 18                    │  UI component library                    │
+    │  TypeScript 5.7              │  Static type safety                      │
+    │  Tailwind CSS 3.4            │  Utility-first CSS styling               │
+    │  next-themes                 │  Dark/Light mode theming                 │
+    │  Lucide React                │  Icon library                            │
+    │  Mermaid.js 12               │  Interactive diagram rendering           │
+    │  livekit-client 2.23         │  WebRTC voice/video client SDK           │
+    │  class-variance-authority    │  Component variant management            │
+    │  clsx                        │  Conditional CSS class joining           │
+    │  tailwind-merge              │  Tailwind class deduplication            │
+    │  ESLint                      │  JavaScript/TypeScript linting           │
+    │  PostCSS                     │  CSS processing                          │
+    │  Autoprefixer                │  CSS vendor prefixing                    │
+    └──────────────────────────────┴──────────────────────────────────────────┘
+
+4.2  BACKEND OPEN SOURCE TOOLS
+
+    ┌──────────────────────────────┬──────────────────────────────────────────┐
+    │  Tool / Library              │  Purpose                                 │
+    ├──────────────────────────────┼──────────────────────────────────────────┤
+    │  Python 3.10+                │  Primary backend language                │
+    │  FastAPI                     │  Async web framework (REST API)          │
+    │  Uvicorn                     │  ASGI server                             │
+    │  Pydantic v2                 │  Data validation & serialization         │
+    │  pydantic-settings           │  Environment-based configuration         │
+    │  SQLAlchemy 2.0              │  ORM & database toolkit                  │
+    │  asyncpg                     │  Async PostgreSQL driver                 │
+    │  psycopg2-binary             │  Sync PostgreSQL driver (migrations)     │
+    │  python-dotenv               │  .env file loading                       │
+    │  httpx                       │  Async HTTP client (GitHub API calls)    │
+    │  pgvector (Python)           │  pgvector extension bindings             │
+    │  Sentence Transformers       │  Local embedding model framework         │
+    │  BAAI/bge-small-en-v1.5      │  384-dim embedding model (CPU)           │
+    │  bcrypt                      │  Password hashing                        │
+    │  PyJWT                       │  JSON Web Token signing/verification     │
+    │  greenlet                    │  Lightweight coroutine bridge             │
+    │  Pytest                      │  Testing framework                       │
+    │  Pytest-Asyncio              │  Async test support                      │
+    └──────────────────────────────┴──────────────────────────────────────────┘
+
+4.3  VOICE & REAL-TIME OPEN SOURCE TOOLS
+
+    ┌──────────────────────────────┬──────────────────────────────────────────┐
+    │  Tool / Library              │  Purpose                                 │
+    ├──────────────────────────────┼──────────────────────────────────────────┤
+    │  LiveKit Agents 1.8          │  Voice pipeline orchestration framework  │
+    │  LiveKit Server SDK 1.2      │  Token generation & room management      │
+    │  LiveKit Python SDK 1.1      │  Real-time audio transport               │
+    │  livekit-plugins-silero 1.8  │  Silero VAD integration for LiveKit      │
+    │  livekit-plugins-sarvam 1.5  │  Sarvam AI STT/TTS/LLM for LiveKit      │
+    │  Silero VAD                  │  Voice Activity Detection (local, CPU)   │
+    │  LiveKit Client JS 2.23     │  Browser WebRTC client SDK               │
+    └──────────────────────────────┴──────────────────────────────────────────┘
+
+4.4  AI / LLM PROVIDERS
+
+    ┌──────────────────────────────┬──────────────────────────────────────────┐
+    │  Provider / Model            │  Purpose                                 │
+    ├──────────────────────────────┼──────────────────────────────────────────┤
+    │  Ollama (Local)              │  Local LLM inference engine              │
+    │  llama3.2:3b (Meta)          │  Repository analysis & structure explain │
+    │  Sarvam AI (Cloud API)       │  RAG chat & voice agent reasoning        │
+    │  sarvam-105b                 │  Chat completions model                  │
+    │  saaras:v2.5                 │  Speech-to-Text model                    │
+    │  bulbul:v3                   │  Text-to-Speech model                    │
+    │  sarvamai (Python SDK)       │  Official Sarvam AI SDK                  │
+    └──────────────────────────────┴──────────────────────────────────────────┘
+
+4.5  DATABASE & INFRASTRUCTURE OPEN SOURCE TOOLS
+
+    ┌──────────────────────────────┬──────────────────────────────────────────┐
+    │  Tool                        │  Purpose                                 │
+    ├──────────────────────────────┼──────────────────────────────────────────┤
+    │  PostgreSQL 16               │  Relational database                     │
+    │  pgvector extension          │  Vector similarity search in PostgreSQL  │
+    │  Docker                      │  Containerization                        │
+    │  Docker Compose              │  Multi-service orchestration             │
+    │  Git                         │  Version control                         │
+    │  GitHub REST API v3          │  Repository metadata & code fetching     │
+    │  GitHub Actions              │  CI/CD pipeline                          │
+    │  Node.js 18+                 │  JavaScript runtime                      │
+    │  npm                         │  Package manager                         │
+    │  pip                         │  Python package manager                  │
+    └──────────────────────────────┴──────────────────────────────────────────┘
+
+4.6  SECURITY OPEN SOURCE TOOLS
+
+    ┌──────────────────────────────┬──────────────────────────────────────────┐
+    │  Tool                        │  Purpose                                 │
+    ├──────────────────────────────┼──────────────────────────────────────────┤
+    │  bcrypt (Passlib)            │  Salted password hashing                 │
+    │  PyJWT                       │  HS256 JWT token signing & verification  │
+    │  certifi                     │  SSL certificate bundle (used by LiveKit)│
+    └──────────────────────────────┴──────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 5: RUNNING THE APPLICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  THREE PROCESSES REQUIRED:
+
+  1. Backend API Server:
+       cd backend
+       uvicorn app.main:app --port 8000 --reload
+
+  2. Voice Agent Worker:
+       cd backend
+       python -m app.voice.worker dev
+
+  3. Frontend Dev Server:
+       cd frontend
+       npm run dev
+
+  Open http://localhost:3000 in your browser.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 6: ENVIRONMENT VARIABLES (NEW ADDITIONS)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  # Sarvam AI
+  SARVAM_API_KEY=<your-sarvam-api-key>
+  SARVAM_BASE_URL=https://api.sarvam.ai/v1
+  SARVAM_CHAT_MODEL=sarvam-105b
+  SARVAM_STT_MODEL=saaras:v2.5
+  SARVAM_TTS_MODEL=bulbul:v3
+  SARVAM_TTS_SPEAKER=kavya
+  SARVAM_TTS_SAMPLE_RATE=24000
+
+  # LiveKit
+  LIVEKIT_URL=wss://your-project.livekit.cloud
+  LIVEKIT_API_KEY=<your-livekit-api-key>
+  LIVEKIT_API_SECRET=<your-livekit-api-secret>
+
+  # Per-Feature LLM Provider Routing
+  CHAT_LLM_PROVIDER=sarvam
+  ANALYSIS_LLM_PROVIDER=ollama
+  STRUCTURE_EXPLAINER_LLM_PROVIDER=ollama
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 7: COMPLETE FILE CHANGE LOG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  NEW FILES:
+    backend/app/services/sarvam_provider.py
+    backend/app/services/llm_factory.py
+    backend/app/voice/__init__.py
+    backend/app/voice/agent.py
+    backend/app/voice/worker.py
+    backend/app/api/v1/endpoints/voice.py
+    frontend/context/voice-assistant-context.tsx
+    frontend/components/voice/floating-voice-assistant.tsx
+    backend/tests/test_voice_agent.py
+
+  MODIFIED FILES:
+    backend/app/core/config.py
+    backend/app/chat/service.py
+    backend/app/services/llm_provider.py
+    backend/app/services/repository_analysis_service.py
+    backend/app/services/structure_explainer_service.py
+    backend/app/main.py
+    backend/requirements.txt
+    backend/.env
+    backend/.env.example
+    frontend/package.json
+    frontend/lib/api.ts
+    frontend/app/layout.tsx
+    README.md
+
+================================================================================
+  END OF DOCUMENT
+================================================================================

@@ -11,6 +11,7 @@ import {
   RAGIndexResponse,
   RAGVectorSearchResponse,
   RepositoryChatResponse,
+  ChatHistoryItem,
   DeveloperSkillProfile,
   IssueRecommendationResponse,
   ContributionGuideResponse,
@@ -20,6 +21,9 @@ import {
   AuthLoginRequest,
   AuthTokenResponse,
   AuthStatusResponse,
+  VoiceTokenRequest,
+  VoiceTokenResponse,
+  VoiceStatusResponse,
 } from "@/types";
 
 
@@ -612,7 +616,8 @@ export async function chatWithRepository(
   repo: string,
   question: string,
   branch?: string,
-  topK?: number
+  topK?: number,
+  history?: ChatHistoryItem[]
 ): Promise<RepositoryChatResponse> {
   const trimmedQuestion = question.trim();
   if (!trimmedQuestion) {
@@ -636,6 +641,7 @@ export async function chatWithRepository(
         question: trimmedQuestion,
         branch: branch?.trim() || undefined,
         top_k: topK,
+        history: history && history.length > 0 ? history : undefined,
       }),
     });
   } catch (err: unknown) {
@@ -972,4 +978,78 @@ export async function logoutUser(): Promise<void> {
     removeAuthToken();
   }
 }
+
+// ==============================================================================
+// Voice Assistant API (LiveKit + Sarvam AI)
+// ==============================================================================
+
+/**
+ * Checks readiness and configuration status of voice components.
+ */
+export async function fetchVoiceStatus(): Promise<VoiceStatusResponse> {
+  const headers = getAuthHeaders();
+  try {
+    const response = await fetch(`${API_BASE_URL}/v1/voice/status`, {
+      method: "GET",
+      headers,
+    });
+    if (!response.ok) {
+      throw new ApiError(
+        `Failed to fetch voice status: HTTP ${response.status}`,
+        response.status,
+        mapStatusToErrorType(response.status)
+      );
+    }
+    return response.json();
+  } catch (err: unknown) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError("Failed to reach voice assistant service.", 503, "rate_limit");
+  }
+}
+
+/**
+ * Requests a short-lived, room-scoped LiveKit access token with repository context.
+ */
+export async function fetchVoiceToken(
+  request: VoiceTokenRequest
+): Promise<VoiceTokenResponse> {
+  const headers = getAuthHeaders();
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/v1/voice/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...headers,
+      },
+      body: JSON.stringify(request),
+    });
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Network error";
+    throw new ApiError(
+      `Failed to connect to voice token service: ${errorMsg}`,
+      503,
+      "rate_limit"
+    );
+  }
+
+  if (!response.ok) {
+    let errorDetail = "";
+    try {
+      const errorJson = await response.json();
+      errorDetail = errorJson.detail || JSON.stringify(errorJson);
+    } catch {
+      errorDetail = await response.text();
+    }
+    throw new ApiError(
+      errorDetail || `Voice session initialization failed: HTTP ${response.status}`,
+      response.status,
+      mapStatusToErrorType(response.status),
+      errorDetail
+    );
+  }
+
+  return response.json();
+}
+
 

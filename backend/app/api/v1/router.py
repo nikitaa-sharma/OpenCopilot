@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, health, profile, repositories
+from app.api.v1.endpoints import auth, health, profile, repositories, voice
 
 api_router = APIRouter()
 
@@ -12,6 +12,8 @@ api_router.include_router(repositories.router, prefix="/repositories", tags=["Re
 api_router.include_router(repositories.router, prefix="/v1/repositories", tags=["Repositories (v1)"])
 api_router.include_router(profile.router, prefix="/profile", tags=["Profile"])
 api_router.include_router(profile.router, prefix="/v1/profile", tags=["Profile (v1)"])
+api_router.include_router(voice.router, prefix="/voice", tags=["Voice Assistant"])
+api_router.include_router(voice.router, prefix="/v1/voice", tags=["Voice Assistant (v1)"])
 
 # ==============================================================================
 # Planned Future Endpoints (To be implemented in subsequent phases)

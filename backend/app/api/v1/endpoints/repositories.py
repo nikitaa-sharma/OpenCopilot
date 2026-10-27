@@ -1008,6 +1008,7 @@ async def chat_with_repository(request: RepositoryChatRequest) -> RepositoryChat
         question=request.question.strip(),
         branch=request.branch.strip() if request.branch else None,
         top_k=request.top_k,
+        history=request.history,
     )
 
     try:

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { AuthProvider } from "@/context/auth-context";
+import { VoiceAssistantProvider } from "@/context/voice-assistant-context";
+import { FloatingVoiceButton } from "@/components/voice/floating-voice-button";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -26,9 +28,12 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <AuthProvider>
-            <Navbar />
-            <main className="flex-1">{children}</main>
-            <Footer />
+            <VoiceAssistantProvider>
+              <Navbar />
+              <main className="flex-1">{children}</main>
+              <Footer />
+              <FloatingVoiceButton />
+            </VoiceAssistantProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

@@ -80,15 +80,31 @@ class Settings(BaseSettings):
     MAX_TOTAL_CODE_BYTES: int = 2 * 1024 * 1024  # Max total code ingested (2 MB)
 
     # AI / LLM Configuration (Modular & Replaceable)
-    LLM_PROVIDER: str = "ollama"
+    LLM_PROVIDER: str = "sarvam"
+    ANALYSIS_LLM_PROVIDER: str = "ollama"
+    STRUCTURE_EXPLAINER_LLM_PROVIDER: str = "ollama"
+    CHAT_LLM_PROVIDER: str = "sarvam"
     LLM_API_KEY: str = ""
-    LLM_BASE_URL: str = "http://localhost:11434"
-    LLM_MODEL: str = "llama3.2:3b"
+    LLM_BASE_URL: str = "https://api.sarvam.ai/v1"
+    LLM_MODEL: str = "sarvam-105b"
+    SARVAM_API_KEY: str = ""
+    SARVAM_BASE_URL: str = "https://api.sarvam.ai/v1"
+    SARVAM_CHAT_MODEL: str = "sarvam-105b"
+    SARVAM_STT_MODEL: str = "saaras:v2.5"
+    SARVAM_TTS_MODEL: str = "bulbul:v3"
+    SARVAM_TTS_SPEAKER: str = "kavya"
+    SARVAM_TTS_SAMPLE_RATE: int = 24000
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2:3b"
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_OUTPUT_TOKENS: int = 4096
     LLM_REQUEST_TIMEOUT: float = 120.0
+
+    # LiveKit Voice Agent Configuration
+    LIVEKIT_URL: str = ""
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
+    VOICE_SESSION_TIMEOUT_SECONDS: int = 600
 
     # AI Context Building & Safety Limits
     AI_MAX_CONTEXT_CHARS: int = 60000

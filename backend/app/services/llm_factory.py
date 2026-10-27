@@ -6,6 +6,7 @@ from app.services.llm_provider import (
     LLMProviderError,
     OllamaProvider,
     OpenAICompatibleProvider,
+    SarvamProvider,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,14 @@ def get_llm_provider(provider_name: Optional[str] = None) -> LLMProvider:
     """
     resolved_name = (provider_name or settings.LLM_PROVIDER).lower().strip()
 
-    if resolved_name == "ollama":
+    if resolved_name == "sarvam":
+        return SarvamProvider(
+            api_key=settings.SARVAM_API_KEY or settings.LLM_API_KEY,
+            base_url=settings.SARVAM_BASE_URL,
+            model=settings.SARVAM_CHAT_MODEL or settings.LLM_MODEL,
+            timeout=settings.LLM_REQUEST_TIMEOUT,
+        )
+    elif resolved_name == "ollama":
         return OllamaProvider(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
@@ -66,5 +74,5 @@ def get_llm_provider(provider_name: Optional[str] = None) -> LLMProvider:
     else:
         raise UnsupportedLLMProviderError(
             f"Unsupported LLM provider '{resolved_name}'. "
-            f"Supported providers: 'ollama', 'openai', 'groq'."
+            f"Supported providers: 'sarvam', 'ollama', 'openai', 'groq'."
         )

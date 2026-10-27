@@ -329,7 +329,8 @@ class StructureExplainerService:
     def _get_provider(self) -> LLMProvider:
         if self._custom_llm_provider:
             return self._custom_llm_provider
-        return get_llm_provider()
+        provider_name = getattr(settings, "STRUCTURE_EXPLAINER_LLM_PROVIDER", "ollama") or "ollama"
+        return get_llm_provider(provider_name)
 
     async def explain_repository_structure(
         self,
@@ -431,6 +432,14 @@ class StructureExplainerService:
                 key_files=key_files,
             )
 
+        provider_name = getattr(provider, "name", None)
+        if not isinstance(provider_name, str) or not provider_name:
+            provider_name = getattr(settings, "STRUCTURE_EXPLAINER_LLM_PROVIDER", "ollama")
+
+        model_name = getattr(provider, "model", None)
+        if not isinstance(model_name, str) or not model_name:
+            model_name = settings.OLLAMA_MODEL
+
         return StructureExplainerResponse(
             repository=RepositoryRef(
                 owner=owner,
@@ -438,8 +447,8 @@ class StructureExplainerService:
                 branch=effective_branch,
             ),
             explainer=explainer_analysis,
-            provider=settings.LLM_PROVIDER,
-            model=getattr(provider, "model", settings.OLLAMA_MODEL),
+            provider=provider_name,
+            model=model_name,
             context_stats=ContextStats(
                 files_included=len(file_contents) + (1 if readme and readme.content else 0),
                 total_context_chars=len(context_str),

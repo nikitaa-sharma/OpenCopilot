@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useVoiceAssistant } from "@/context/voice-assistant-context";
 import { RepositoryInput } from "@/components/analyzer/repository-input";
 import { AnalysisProgress, AnalysisStage } from "@/components/analyzer/analysis-progress";
 import { ErrorDisplay } from "@/components/analyzer/error-display";
@@ -40,6 +41,21 @@ export default function HomePage() {
 
   const [analysisData, setAnalysisData] = useState<RepositoryAnalysisResponse | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Synchronize active repository context with floating Voice Assistant
+  const { setRepositoryContext } = useVoiceAssistant();
+
+  useEffect(() => {
+    if (analysisData?.repository) {
+      setRepositoryContext({
+        owner: analysisData.repository.owner,
+        repo: analysisData.repository.name,
+        branch: analysisData.repository.default_branch,
+      });
+    } else {
+      setRepositoryContext(null);
+    }
+  }, [analysisData, setRepositoryContext]);
 
   // Developer Skill Profile State (Phase 10)
   const [developerProfile, setDeveloperProfile] = useState<DeveloperSkillProfile | undefined>(undefined);

@@ -461,6 +461,7 @@ class RepositoryChatRequest(BaseModel):
     question: str = Field(..., max_length=2000, description="Natural language question about the repository", examples=["How does Flask handle incoming HTTP requests?"])
     branch: Optional[str] = Field(None, max_length=100, description="Optional branch or commit ref to inspect")
     top_k: Optional[int] = Field(None, description="Maximum number of context chunks to retrieve", ge=1, le=20)
+    history: Optional[List[Dict[str, Any]]] = Field(None, description="Optional recent conversation turns")
 
 
 class ChatSourceItem(BaseModel):

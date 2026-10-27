@@ -51,7 +51,8 @@ class RepositoryChatService:
     @property
     def llm_provider(self) -> LLMProvider:
         if self._llm_provider is None:
-            self._llm_provider = get_llm_provider()
+            provider_name = getattr(settings, "CHAT_LLM_PROVIDER", "sarvam") or "sarvam"
+            self._llm_provider = get_llm_provider(provider_name)
         return self._llm_provider
 
     async def chat(
@@ -112,6 +113,7 @@ class RepositoryChatService:
             temperature=settings.LLM_TEMPERATURE,
             max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
             json_mode=True,
+            history=question.history,
         )
 
         # Step 5: Safe structured parsing

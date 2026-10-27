@@ -438,12 +438,18 @@ export interface ChatSourceItem {
   retrieval_reason?: string | null;
 }
 
+export interface ChatHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface RepositoryChatRequest {
   owner: string;
   repo: string;
   question: string;
   branch?: string;
   top_k?: number;
+  history?: ChatHistoryItem[];
 }
 
 export interface RepositoryChatResponse {
@@ -704,5 +710,38 @@ export interface StructureExplainerResponse {
     total_context_chars: number;
   } | null;
 }
+
+// ==============================================================================
+// Voice Assistant Types (LiveKit + Sarvam AI)
+// ==============================================================================
+
+export interface VoiceTokenRequest {
+  repository_owner?: string;
+  repository_name?: string;
+  branch?: string;
+  room_name?: string;
+}
+
+export interface VoiceTokenResponse {
+  server_url: string;
+  room_name: string;
+  participant_token: string;
+  participant_identity: string;
+  repository_owner?: string | null;
+  repository_name?: string | null;
+  branch?: string | null;
+  expires_in: number;
+}
+
+export interface VoiceStatusResponse {
+  configured: boolean;
+  livekit_configured: boolean;
+  sarvam_configured: boolean;
+  livekit_url?: string | null;
+  chat_model: string;
+  stt_model: string;
+  tts_model: string;
+}
+
 
 

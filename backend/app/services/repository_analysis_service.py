@@ -129,7 +129,8 @@ class RepositoryAnalysisService:
     def _get_provider(self) -> LLMProvider:
         if self._custom_llm_provider:
             return self._custom_llm_provider
-        return get_llm_provider()
+        provider_name = getattr(settings, "ANALYSIS_LLM_PROVIDER", "ollama") or "ollama"
+        return get_llm_provider(provider_name)
 
     async def analyze_repository_with_ai(
         self,
@@ -260,6 +261,14 @@ class RepositoryAnalysisService:
                 ) from exc
 
         # 10. Assemble and return typed response
+        provider_name = getattr(provider, "name", None)
+        if not isinstance(provider_name, str) or not provider_name:
+            provider_name = getattr(settings, "ANALYSIS_LLM_PROVIDER", "ollama")
+
+        model_name = getattr(provider, "model", None)
+        if not isinstance(model_name, str) or not model_name:
+            model_name = settings.OLLAMA_MODEL
+
         return RepositoryAIAnalysisResponse(
             repository=RepositoryRef(
                 owner=owner,
@@ -267,8 +276,8 @@ class RepositoryAnalysisService:
                 branch=effective_branch,
             ),
             analysis=analysis,
-            provider=settings.LLM_PROVIDER,
-            model=getattr(provider, "model", settings.OLLAMA_MODEL),
+            provider=provider_name,
+            model=model_name,
             context_stats=ContextStats(
                 files_included=len(file_contents) + (1 if readme and readme.content else 0),
                 total_context_chars=len(context_str),
