@@ -5,6 +5,7 @@ Generates local query embeddings and performs cosine similarity search
 against indexed RepositoryChunk embeddings in PostgreSQL.
 """
 
+import asyncio
 import logging
 from typing import List, Optional
 
