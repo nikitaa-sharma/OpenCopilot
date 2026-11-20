@@ -19,6 +19,7 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=(settings.ENVIRONMENT == "development"),
     future=True,
+    connect_args={"timeout": 2.0},
 )
 
 AsyncSessionLocal = async_sessionmaker(

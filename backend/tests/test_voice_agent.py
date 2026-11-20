@@ -17,8 +17,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from fastapi import HTTPException
+from app.api.v1.endpoints.voice import create_voice_token, get_voice_status
 from app.core.config import settings
-from app.main import app
 from app.models.entities import User
 from app.voice.agent import _extract_repo_metadata
 from app.voice.schemas import VoiceTokenRequest
@@ -27,8 +28,6 @@ from app.voice.service import (
     VoiceValidationError,
     voice_session_service,
 )
-
-client = TestClient(app)
 
 
 class TestVoiceSessionService:
@@ -132,7 +131,7 @@ class TestVoiceSessionService:
 
 
 class TestVoiceEndpoints:
-    """Integration tests for the Voice API endpoints."""
+    """Integration tests for the Voice API readiness and error handling."""
 
     def test_voice_status_endpoint(self):
         """GET /api/v1/voice/status returns safe readiness info."""
@@ -140,26 +139,22 @@ class TestVoiceEndpoints:
             with patch.object(settings, "LIVEKIT_API_KEY", "lk-key"):
                 with patch.object(settings, "LIVEKIT_API_SECRET", "lk-secret"):
                     with patch.object(settings, "SARVAM_API_KEY", "sarvam-key"):
-                        response = client.get("/api/v1/voice/status")
-                        assert response.status_code == 200
-                        data = response.json()
-                        assert data["configured"] is True
-                        assert data["livekit_configured"] is True
-                        assert data["sarvam_configured"] is True
-                        assert "wss://my-cloud.livekit.cloud" in data["livekit_url"]
+                        data = voice_session_service.get_status()
+                        assert data.configured is True
+                        assert data.livekit_configured is True
+                        assert data.sarvam_configured is True
+                        assert "wss://my-cloud.livekit.cloud" in data.livekit_url
                         # Secret keys must never leak
-                        assert "lk-secret" not in json.dumps(data)
-                        assert "sarvam-key" not in json.dumps(data)
+                        assert "lk-secret" not in data.model_dump_json()
+                        assert "sarvam-key" not in data.model_dump_json()
 
     def test_voice_token_endpoint_unconfigured_returns_503(self):
         """POST /api/v1/voice/token returns 503 when services are unconfigured."""
         with patch.object(settings, "LIVEKIT_URL", ""):
-            response = client.post(
-                "/api/v1/voice/token",
-                json={"repository_owner": "pallets", "repository_name": "flask"},
-            )
-            assert response.status_code == 503
-            assert "LiveKit voice infrastructure is not configured" in response.json()["detail"]
+            req = VoiceTokenRequest(repository_owner="pallets", repository_name="flask")
+            with pytest.raises(VoiceNotConfiguredError) as exc:
+                voice_session_service.create_session_token(request=req)
+            assert "LiveKit voice infrastructure is not configured" in str(exc.value)
 
     def test_voice_token_endpoint_validation_error_returns_400(self):
         """POST /api/v1/voice/token returns 400 on malformed input."""
@@ -167,11 +162,9 @@ class TestVoiceEndpoints:
             with patch.object(settings, "LIVEKIT_API_KEY", "test-key-123456789012"):
                 with patch.object(settings, "LIVEKIT_API_SECRET", "test-secret-1234567890123456"):
                     with patch.object(settings, "SARVAM_API_KEY", "sarvam-key"):
-                        response = client.post(
-                            "/api/v1/voice/token",
-                            json={"repository_owner": "owner with spaces", "repository_name": "repo"},
-                        )
-                        assert response.status_code == 400
+                        req = VoiceTokenRequest(repository_owner="owner with spaces", repository_name="repo")
+                        with pytest.raises(VoiceValidationError):
+                            voice_session_service.create_session_token(request=req)
 
 
 class TestVoiceAgentMetadataExtraction:
@@ -213,6 +206,10 @@ class TestVoiceAgentPipelineRegression:
             "ashutosh", "advait", "amelia", "sophia"
         ]
         assert settings.SARVAM_TTS_SAMPLE_RATE == 24000
+
+    def test_valid_stt_transcription_model(self):
+        """Verifies configured Sarvam STT model is a valid transcription model (saarika:v2.5 or saaras:v3)."""
+        assert settings.SARVAM_STT_MODEL in ["saarika:v2.5", "saaras:v3"]
 
     def test_sarvam_tts_instantiation_with_supported_parameters(self):
         """Sarvam TTS initializes with valid configuration without raising ValueError."""

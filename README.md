@@ -55,7 +55,7 @@ The application delivers the following fully implemented capabilities:
 - **Developer Skill Profile**: Customizable developer profile tracking languages, frameworks, developer tools, domains, experience level, and interests with deterministic alias normalization.
 - **Personalized Issue Recommendations**: Transparent, deterministic matching between developer skills and issue requirements, showing match percentage, matching reasons, and constructive skill gaps.
 - **RAG-Based Repository Chat (Sarvam AI)**: Grounded conversational assistant powered by Sarvam AI (`sarvam-105b`) answering codebase queries with verified file citations and code references.
-- **Floating Voice Assistant (LiveKit + Sarvam AI)**: Real-time voice interaction with the repository using Silero VAD, Sarvam STT (`saaras:v2.5`), Sarvam LLM (`sarvam-105b`), and Sarvam TTS (`bulbul:v3`) orchestrated by LiveKit Agents.
+- **Floating Voice Assistant (LiveKit + Sarvam AI)**: Real-time voice interaction with the repository using Silero VAD, Sarvam STT (`saarika:v2.5`), Sarvam LLM (`sarvam-105b`), and Sarvam TTS (`bulbul:v3`) orchestrated by LiveKit Agents.
 - **pgvector Vector Search with Keyword Fallback**: 384-dimensional cosine similarity retrieval via PostgreSQL pgvector, with automatic fallback to exact and subword keyword retrieval if unindexed.
 - **AI Contribution Guide**: Structured step-by-step blueprints for resolving issues, covering environment prerequisites, code areas to inspect, testing strategy, and PR checklists.
 - **User Authentication & Profile Persistence**: Secure JWT bearer tokens and bcrypt password hashing with PostgreSQL profile persistence and backward-compatible unauthenticated access.
@@ -158,7 +158,7 @@ flowchart LR
 ### AI Providers (Hybrid Architecture)
 - **Local LLM Engine**: Ollama (`llama3.2:3b`) — used for repository analysis and structure explanation
 - **Cloud LLM Provider**: Sarvam AI (`sarvam-105b`) — used for RAG chat and voice conversations
-- **Speech-to-Text**: Sarvam AI (`saaras:v2.5`)
+- **Speech-to-Text**: Sarvam AI (`saarika:v2.5`)
 - **Text-to-Speech**: Sarvam AI (`bulbul:v3`, speaker: `kavya`, 24kHz)
 - **Voice Activity Detection**: Silero VAD (local, CPU)
 - **Embedding Provider**: Sentence Transformers (`BAAI/bge-small-en-v1.5`, 384 dimensions, CPU execution)
@@ -381,7 +381,7 @@ The table below documents all environment variables used in local development. N
 | `SARVAM_API_KEY` | Sarvam AI API key | `""` |
 | `SARVAM_BASE_URL` | Sarvam AI API endpoint | `https://api.sarvam.ai/v1` |
 | `SARVAM_CHAT_MODEL` | Sarvam chat model | `sarvam-105b` |
-| `SARVAM_STT_MODEL` | Sarvam speech-to-text model | `saaras:v2.5` |
+| `SARVAM_STT_MODEL` | Sarvam speech-to-text model | `saarika:v2.5` |
 | `SARVAM_TTS_MODEL` | Sarvam text-to-speech model | `bulbul:v3` |
 | `SARVAM_TTS_SPEAKER` | Sarvam TTS voice speaker | `kavya` |
 | `SARVAM_TTS_SAMPLE_RATE` | TTS audio sample rate (Hz) | `24000` |

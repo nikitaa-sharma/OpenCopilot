@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Github, Search, Sparkles, ArrowRight, XCircle } from "lucide-react";
+import { Github, Search, Cpu, ArrowRight, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +50,7 @@ export function RepositoryInput({
       <div className="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 text-center">
         {/* Badge */}
         <div className="inline-flex items-center space-x-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary mb-6 shadow-sm">
-          <Sparkles className="h-3.5 w-3.5" />
+          <Cpu className="h-3.5 w-3.5" />
           <span>AI-Powered Open Source Onboarding</span>
         </div>
 

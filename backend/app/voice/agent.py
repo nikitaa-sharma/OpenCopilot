@@ -16,7 +16,7 @@ import logging
 from typing import Optional
 
 from livekit import agents, rtc
-from livekit.agents import AutoSubscribe, JobContext, llm, voice
+from livekit.agents import AutoSubscribe, JobContext, llm, tokenize, tts, voice
 from livekit.plugins import sarvam, silero
 
 from app.chat.models import ChatQuestion
@@ -30,17 +30,35 @@ _cached_vad = None
 
 
 def prewarm_vad(proc=None):
-    """Preloads the Silero VAD model into process memory."""
+    """Preloads the Silero VAD model into process memory with optimized endpointing."""
     global _cached_vad
     if _cached_vad is None:
         try:
             logger.info("Pre-warming Silero VAD model...")
-            _cached_vad = silero.VAD.load()
+            _cached_vad = silero.VAD.load(
+                min_speech_duration=0.08,
+                min_silence_duration=0.35,
+                prefix_padding_duration=0.2,
+                activation_threshold=0.45,
+            )
             if proc is not None and hasattr(proc, "userdata"):
                 proc.userdata["vad"] = _cached_vad
         except Exception as exc:
             logger.warning("Could not pre-warm Silero VAD: %s", exc)
     return _cached_vad
+
+
+def prewarm_process(proc=None):
+    """Pre-warms Silero VAD and SentenceTransformer models at worker startup."""
+    prewarm_vad(proc)
+    try:
+        from app.embeddings.factory import get_embedding_provider
+        provider = get_embedding_provider()
+        logger.info("Pre-warming local embedding model in worker memory...")
+        provider.embed_text("warmup", is_query=True)
+        logger.info("Local embedding model pre-warmed successfully.")
+    except Exception as exc:
+        logger.warning("Could not pre-warm embedding model: %s", exc)
 
 
 def get_vad_instance(ctx: Optional[JobContext] = None):
@@ -51,7 +69,12 @@ def get_vad_instance(ctx: Optional[JobContext] = None):
         if proc_vad is not None:
             return proc_vad
     if _cached_vad is None:
-        _cached_vad = silero.VAD.load()
+        _cached_vad = silero.VAD.load(
+            min_speech_duration=0.08,
+            min_silence_duration=0.35,
+            prefix_padding_duration=0.2,
+            activation_threshold=0.45,
+        )
     return _cached_vad
 
 
@@ -135,7 +158,7 @@ async def voice_agent_entrypoint(ctx: JobContext) -> None:
                 "role": role,
                 "sources": sources if sources is not None else list(latest_citations),
             })
-            ctx.room.local_participant.publish_data(payload, reliable=True)
+            asyncio.create_task(ctx.room.local_participant.publish_data(payload, reliable=True))
         except Exception as pub_exc:
             logger.debug("Failed to publish data message: %s", pub_exc)
 
@@ -221,7 +244,7 @@ async def voice_agent_entrypoint(ctx: JobContext) -> None:
         temperature=0.3,
     )
 
-    tts_instance = sarvam.TTS(
+    tts_base = sarvam.TTS(
         target_language_code="en-IN",
         model=settings.SARVAM_TTS_MODEL,
         speaker=settings.SARVAM_TTS_SPEAKER,
@@ -229,20 +252,43 @@ async def voice_agent_entrypoint(ctx: JobContext) -> None:
         api_key=settings.SARVAM_API_KEY or settings.LLM_API_KEY,
     )
 
+    # Wrap Sarvam TTS in LiveKit's StreamAdapter to prevent WebSocket race conditions
+    # and ChanClosed exceptions, ensuring fast, sentence-by-sentence REST streaming synthesis.
+    tts_instance = tts.StreamAdapter(
+        tts=tts_base,
+        sentence_tokenizer=tokenize.basic.SentenceTokenizer(),
+    )
+
     vad_instance = get_vad_instance(ctx)
 
-    # Create Voice Agent
+    # Create Voice Agent with pipeline components and tools
     agent = voice.Agent(
         instructions=instructions,
         tools=[search_repository] if (owner and repo) else [],
+        stt=stt_instance,
+        vad=vad_instance,
+        llm=llm_instance,
+        tts=tts_instance,
     )
 
-    # Create Voice Agent Session
+    # Create Voice Agent Session with optimized turn endpointing
     session = voice.AgentSession(
         stt=stt_instance,
         vad=vad_instance,
         llm=llm_instance,
         tts=tts_instance,
+        turn_handling={
+            "endpointing": {
+                "mode": "fixed",
+                "min_delay": 0.3,
+                "max_delay": 1.5,
+            },
+            "interruption": {
+                "enabled": True,
+                "mode": "vad",
+                "min_duration": 0.4,
+            },
+        },
     )
 
     # --- Session event handlers ---
@@ -251,21 +297,40 @@ async def voice_agent_entrypoint(ctx: JobContext) -> None:
         old_state = getattr(event, "old_state", "")
         new_state = getattr(event, "new_state", "")
         logger.info("Voice agent state changed: %s -> %s", old_state, new_state)
+        if ctx.room and ctx.room.local_participant:
+            try:
+                state_payload = json.dumps({"type": "state", "state": new_state})
+                asyncio.create_task(ctx.room.local_participant.publish_data(state_payload, reliable=True))
+            except Exception:
+                pass
 
     @session.on("conversation_item_added")
     def _on_item_added(event):
         item = getattr(event, "item", None)
         if item and getattr(item, "role", "") == "assistant":
-            content = getattr(item, "content", "")
-            if content and isinstance(content, str):
-                logger.info("Voice agent assistant message: %s", content[:120])
-                _publish_data_message(content, role="assistant")
+            # In livekit-agents 1.8, ChatMessage.content is a list[str | Image | Audio]
+            text = getattr(item, "text_content", None) or getattr(item, "raw_text_content", None)
+            if not text:
+                raw = getattr(item, "content", "")
+                if isinstance(raw, str):
+                    text = raw
+                elif isinstance(raw, list):
+                    text = " ".join(str(c) for c in raw if c)
+            if text:
+                logger.info("Voice agent assistant message: %s", text[:120])
+                _publish_data_message(text, role="assistant")
 
     @session.on("user_input_transcribed")
     def _on_user_transcribed(event):
-        transcript = getattr(event, "transcript", None) or str(event)
+        transcript = getattr(event, "transcript", None)
+        if not transcript and hasattr(event, "alternatives"):
+            alts = getattr(event, "alternatives", [])
+            if alts and hasattr(alts[0], "text"):
+                transcript = alts[0].text
+        if not transcript:
+            transcript = str(event)
         is_final = getattr(event, "is_final", True)
-        logger.info("STT transcription received (final=%s): %s", is_final, transcript)
+        logger.info("STT transcription received (final=%s): '%s'", is_final, transcript)
         if transcript and is_final:
             _publish_data_message(transcript, role="user", sources=[])
 

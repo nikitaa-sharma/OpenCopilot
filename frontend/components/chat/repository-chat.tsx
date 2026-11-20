@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   Bot,
   Send,
-  Sparkles,
+  HelpCircle,
   User,
   FileCode,
   AlertCircle,
@@ -318,7 +318,7 @@ export function RepositoryChat({
           {/* Suggested Questions Chips */}
           <div className="p-3 border-t border-border/40 bg-secondary/15">
             <div className="flex items-center space-x-1.5 text-[11px] text-muted-foreground mb-2">
-              <Sparkles className="h-3 w-3 text-primary" />
+              <HelpCircle className="h-3 w-3 text-primary" />
               <span>Suggested questions:</span>
             </div>
             <div className="flex flex-wrap gap-1.5">

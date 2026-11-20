@@ -6,7 +6,6 @@ import {
   MicOff,
   PhoneOff,
   X,
-  Sparkles,
   Bot,
   User,
   AlertCircle,
@@ -277,7 +276,9 @@ export function FloatingVoicePanel() {
                     ? "Sarvam Copilot is Speaking..."
                     : status === "thinking"
                     ? "Retrieving context & reasoning..."
-                    : "Listening to your voice..."}
+                    : status === "listening"
+                    ? "Listening to your voice..."
+                    : "Ready — ask a question about this repository"}
                 </span>
               </div>
 

@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
-  Sparkles,
+  Target,
+  Cpu,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -244,7 +245,7 @@ export function RecommendedIssues({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
             <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary mb-1">
-              <Sparkles className="h-3.5 w-3.5" />
+              <Target className="h-3.5 w-3.5" />
               <span>Skill-Targeted Discovery</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
@@ -393,7 +394,7 @@ export function RecommendedIssues({
                             onClick={() => handleAnalyzeIssue(rec.issue)}
                             className="gap-1.5 text-xs h-8 whitespace-nowrap"
                           >
-                            <Sparkles className="h-3.5 w-3.5 text-primary" />
+                            <Cpu className="h-3.5 w-3.5 text-primary" />
                             <span>Analyze with AI</span>
                           </Button>
                         )}
@@ -510,7 +511,7 @@ export function RecommendedIssues({
                         className="w-full flex items-center justify-between p-3.5 text-xs font-semibold text-foreground bg-secondary/20 hover:bg-secondary/40 transition-colors text-left"
                       >
                         <div className="flex items-center space-x-2">
-                          <Sparkles className="h-3.5 w-3.5 text-primary" />
+                          <Target className="h-3.5 w-3.5 text-primary" />
                           <span>Why this issue matches your skills ({matchPercentage}% match)</span>
                         </div>
                         {isExpanded ? (

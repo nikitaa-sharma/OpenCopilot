@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import {
-  Sparkles,
   Cpu,
   Layers,
   FileCode,
+  FileText,
   FolderTree,
   PlayCircle,
   TestTube,
@@ -126,7 +126,7 @@ export function AIAnalysisSection({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary mb-1">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <Cpu className="h-3.5 w-3.5 text-primary" />
               <span>Grounded AI Architecture Understanding</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
@@ -142,7 +142,7 @@ export function AIAnalysisSection({
               </Badge>
             ) : (
               <Badge variant="warning" className="gap-1.5 text-xs font-medium">
-                <Sparkles className="h-3 w-3" />
+                <Cpu className="h-3 w-3" />
                 <span>AI Demo Preview</span>
               </Badge>
             )}
@@ -257,7 +257,7 @@ export function AIAnalysisSection({
                 <div className="space-y-6 animate-in fade-in duration-200">
                   <div className="space-y-2">
                     <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      <FileText className="h-3.5 w-3.5 text-primary" />
                       <span>Project Summary</span>
                     </h4>
                     <p className="text-base text-foreground leading-relaxed">

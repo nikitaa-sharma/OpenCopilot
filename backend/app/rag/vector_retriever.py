@@ -67,7 +67,7 @@ class VectorRetriever:
 
         # 1. Generate query embedding (with BGE instruction prefix if applicable)
         provider = self.embedding_provider
-        query_vector = provider.embed_text(query, is_query=True)
+        query_vector = await asyncio.to_thread(provider.embed_text, query, is_query=True)
 
         # 2. Query pgvector
         if session is not None:

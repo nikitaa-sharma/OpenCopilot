@@ -1,7 +1,8 @@
 "use client";
 
 import {
-  Sparkles,
+  Cpu,
+  Loader2,
   ExternalLink,
   AlertTriangle,
   FileCode,
@@ -137,7 +138,7 @@ export function LiveIssueAIModal({
         {isLoading && (
           <div className="py-12 px-4 text-center space-y-4">
             <div className="inline-flex items-center justify-center p-3 rounded-full bg-primary/10 border border-primary/20 text-primary animate-pulse">
-              <Sparkles className="h-6 w-6 animate-spin" />
+              <Loader2 className="h-6 w-6 animate-spin" />
             </div>
             <div>
               <h4 className="text-sm font-semibold text-foreground">
@@ -221,7 +222,7 @@ export function LiveIssueAIModal({
             {/* AI Plain-Language Explanation */}
             <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-                <Sparkles className="h-4 w-4 text-primary" />
+                <Cpu className="h-4 w-4 text-primary" />
                 <span>AI Technical Summary</span>
               </div>
               <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">

@@ -1,6 +1,6 @@
 "use client";
 
-import { GitPullRequest, Search, Sparkles, ArrowUp } from "lucide-react";
+import { GitPullRequest, Search, ArrowUp, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -44,7 +44,7 @@ export function EmptyState({ onLoadDemo, onScrollToTop }: EmptyStateProps) {
                 onClick={onLoadDemo}
                 className="gap-2 text-xs font-semibold shadow-sm"
               >
-                <Sparkles className="h-3.5 w-3.5" />
+                <ArrowRight className="h-3.5 w-3.5" />
                 <span>Try Sample Repository</span>
               </Button>
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, ExternalLink, MessageSquare, User as UserIcon } from "lucide-react";
+import { Cpu, ExternalLink, MessageSquare, User as UserIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -139,7 +139,7 @@ export function IssueCard({ issue, isLive = false, onViewAnalysis, onAnalyzeAI }
                 onClick={() => onAnalyzeAI && onAnalyzeAI(issue as GitHubIssueItem)}
                 className="flex-1 min-w-[130px] justify-center gap-1.5 text-xs font-medium bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 hover:border-primary/40 transition-colors whitespace-nowrap"
               >
-                <Sparkles className="h-3.5 w-3.5" />
+                <Cpu className="h-3.5 w-3.5" />
                 <span>Analyze with AI</span>
               </Button>
               <a
@@ -159,7 +159,7 @@ export function IssueCard({ issue, isLive = false, onViewAnalysis, onAnalyzeAI }
               onClick={() => "issueNumber" in issue && onViewAnalysis && onViewAnalysis(issue as Issue)}
               className="w-full justify-center gap-1.5 text-xs font-medium hover:bg-primary/10 hover:text-primary hover:border-primary/40 transition-colors"
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              <Cpu className="h-3.5 w-3.5" />
               <span>View AI Analysis</span>
             </Button>
           )}

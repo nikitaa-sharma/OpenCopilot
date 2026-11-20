@@ -148,37 +148,35 @@ class RepositoryRAGService:
         k = top_k or settings.RAG_TOP_K
         mode = (retrieval_mode or settings.RAG_RETRIEVAL_MODE).lower().strip()
 
-        # Step 1: Always load repository documents to have repository info and keyword fallback ready
-        documents, load_stats = await self.prepare_documents(url=url, branch=branch)
-        repository = documents[0].repository if documents else url
-        chunks = self.chunk_documents(documents)
+        # Step 1: Check vector retrieval first if requested (instant pgvector search)
+        repo_id = url.rstrip("/").removesuffix(".git")
+        if "github.com/" in repo_id:
+            parts = repo_id.split("github.com/")[-1].split("/")
+            if len(parts) >= 2:
+                repo_id = f"{parts[0]}/{parts[1]}"
 
-        # Attempt Vector Retrieval if requested
         if mode == "vector":
             try:
                 vector_results = await self.vector_retriever.retrieve(
                     query=query,
-                    repository_identifier=repository,
+                    repository_identifier=repo_id,
                     top_k=k,
                     session=session,
                 )
-
                 if vector_results:
                     stats = RAGStatistics(
-                        documents_loaded=load_stats.documents_loaded,
-                        documents_skipped=load_stats.documents_skipped,
-                        chunks_created=len(chunks),
-                        chunks_searched=len(chunks),
+                        documents_loaded=0,
+                        documents_skipped=0,
+                        chunks_created=len(vector_results),
+                        chunks_searched=len(vector_results),
                         results_returned=len(vector_results),
-                        truncated_files=load_stats.truncated_files,
-                        total_content_chars=load_stats.total_content_chars,
                     )
                     logger.info(
-                        f"RAG vector retrieve: {repository} | query='{query[:60]}' | "
+                        f"RAG vector retrieve (fast path): {repo_id} | query='{query[:60]}' | "
                         f"results={len(vector_results)}"
                     )
                     return RAGRetrievalResult(
-                        repository=repository,
+                        repository=repo_id,
                         query=query,
                         results=vector_results,
                         statistics=stats,
@@ -186,33 +184,38 @@ class RepositoryRAGService:
                     )
                 else:
                     logger.warning(
-                        f"Vector retrieval returned 0 results for '{repository}' "
+                        f"Vector retrieval returned 0 results for '{repo_id}' "
                         f"(repository may not be indexed yet). Falling back to keyword retriever."
                     )
             except Exception as exc:
                 logger.warning(
-                    f"Vector retrieval unavailable for '{repository}' ({exc}). "
+                    f"Vector retrieval unavailable for '{repo_id}' ({exc}). "
                     f"Falling back to deterministic keyword retrieval."
                 )
 
-            # Fallback to keyword retrieval
-            keyword_results = self.retrieve(query=query, chunks=chunks, top_k=k)
-            stats = RAGStatistics(
-                documents_loaded=load_stats.documents_loaded,
-                documents_skipped=load_stats.documents_skipped,
-                chunks_created=len(chunks),
-                chunks_searched=len(chunks),
-                results_returned=len(keyword_results),
-                truncated_files=load_stats.truncated_files,
-                total_content_chars=load_stats.total_content_chars,
-            )
-            return RAGRetrievalResult(
-                repository=repository,
-                query=query,
-                results=keyword_results,
-                statistics=stats,
-                retrieval_mode="keyword_fallback",
-            )
+        # Fallback to loading repository documents only when needed
+        documents, load_stats = await self.prepare_documents(url=url, branch=branch)
+        repository = documents[0].repository if documents else repo_id
+        chunks = self.chunk_documents(documents)
+
+        # If vector retrieval was not used or failed/empty, perform keyword retrieval
+        keyword_results = self.retrieve(query=query, chunks=chunks, top_k=k)
+        stats = RAGStatistics(
+            documents_loaded=load_stats.documents_loaded,
+            documents_skipped=load_stats.documents_skipped,
+            chunks_created=len(chunks),
+            chunks_searched=len(chunks),
+            results_returned=len(keyword_results),
+            truncated_files=load_stats.truncated_files,
+            total_content_chars=load_stats.total_content_chars,
+        )
+        return RAGRetrievalResult(
+            repository=repository,
+            query=query,
+            results=keyword_results,
+            statistics=stats,
+            retrieval_mode="keyword_fallback" if mode == "vector" else "keyword",
+        )
 
         # Pure keyword mode
         keyword_results = self.retrieve(query=query, chunks=chunks, top_k=k)

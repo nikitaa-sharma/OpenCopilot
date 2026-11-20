@@ -11,7 +11,8 @@ import {
   FileText,
   GitPullRequest,
   ExternalLink,
-  Sparkles,
+  Cpu,
+  Zap,
   Bot,
   AlertCircle,
   AlertTriangle,
@@ -194,7 +195,7 @@ export function ContributionGuide({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary mb-1">
-              <Sparkles className="h-3.5 w-3.5" />
+              <Cpu className="h-3.5 w-3.5" />
               <span>AI-Powered Contribution Guide</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
@@ -268,7 +269,7 @@ export function ContributionGuide({
                     {isLoading ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <Sparkles className="h-3.5 w-3.5" />
+                      <Code2 className="h-3.5 w-3.5" />
                     )}
                     <span>{guideData ? "Regenerate" : "Generate Guide"}</span>
                   </Button>
@@ -646,7 +647,7 @@ export function ContributionGuide({
                           key={idx}
                           className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-xs text-muted-foreground leading-relaxed flex items-start gap-2"
                         >
-                          <Sparkles className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                          <Zap className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                           <span>{opp}</span>
                         </div>
                       ))}
@@ -731,7 +732,7 @@ export function ContributionGuide({
               <CardHeader className="p-5 pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2 text-primary font-semibold text-sm">
-                    <Sparkles className="h-4 w-4" />
+                    <Cpu className="h-4 w-4" />
                     <span>How the AI Contribution Guide Works</span>
                   </div>
                   <Badge variant="outline" className="text-[10px] font-mono text-primary border-primary/30">
@@ -751,7 +752,7 @@ export function ContributionGuide({
                       onClick={() => handleSelectIssueFromList(availableIssues[0].number)}
                       className="gap-1.5 text-xs"
                     >
-                      <Sparkles className="h-3.5 w-3.5" />
+                      <Code2 className="h-3.5 w-3.5" />
                       <span>Generate Guide for #{availableIssues[0].number}</span>
                     </Button>
                   </div>

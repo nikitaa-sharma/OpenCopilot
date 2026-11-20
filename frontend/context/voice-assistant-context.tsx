@@ -295,18 +295,39 @@ export function VoiceAssistantProvider({ children }: { children: React.ReactNode
         try {
           const str = new TextDecoder().decode(payload);
           const data = JSON.parse(str);
+
+          // Handle real-time state broadcast from voice agent
+          if (data && data.type === "state" && data.state) {
+            const mapped: VoiceStatus =
+              data.state === "speaking"
+                ? "speaking"
+                : data.state === "thinking"
+                ? "thinking"
+                : data.state === "listening"
+                ? "listening"
+                : "connected";
+            setStatus(mapped);
+            return;
+          }
+
           if (data && data.text) {
             const role = data.role || (participant?.identity === tokenData.participant_identity ? "user" : "assistant");
-            setTranscripts((prev) => [
-              ...prev,
-              {
-                id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                role: role,
-                text: data.text,
-                timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                sources: data.sources || [],
-              },
-            ]);
+            setTranscripts((prev) => {
+              // Deduplicate identical immediate prior message
+              if (prev.length > 0 && prev[prev.length - 1].text === data.text && prev[prev.length - 1].role === role) {
+                return prev;
+              }
+              return [
+                ...prev,
+                {
+                  id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                  role: role,
+                  text: data.text,
+                  timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  sources: data.sources || [],
+                },
+              ];
+            });
           }
         } catch {
           // ignore malformed data packet
@@ -338,7 +359,8 @@ export function VoiceAssistantProvider({ children }: { children: React.ReactNode
         ? `${repositoryContext.owner}/${repositoryContext.repo}${repositoryContext.branch ? ` (${repositoryContext.branch})` : ""}`
         : "General Mode";
 
-      setTranscripts([
+      setTranscripts((prev) => [
+        ...prev,
         {
           id: `sys-${Date.now()}`,
           role: "assistant",

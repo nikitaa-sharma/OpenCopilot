@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, CheckCircle, AlertCircle, FileCode, Clock } from "lucide-react";
+import { Cpu, CheckCircle, AlertCircle, FileCode, Clock } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,7 @@ export function IssueAnalysisModal({
           {/* Executive Summary */}
           <div className="p-4 rounded-lg bg-secondary/30 border border-border/80 space-y-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-              <Sparkles className="h-4 w-4 text-primary" />
+              <Cpu className="h-4 w-4 text-primary" />
               <span>AI Technical Summary</span>
             </div>
             <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">

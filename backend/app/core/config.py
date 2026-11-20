@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     SARVAM_API_KEY: str = ""
     SARVAM_BASE_URL: str = "https://api.sarvam.ai/v1"
     SARVAM_CHAT_MODEL: str = "sarvam-105b"
-    SARVAM_STT_MODEL: str = "saaras:v2.5"
+    SARVAM_STT_MODEL: str = "saarika:v2.5"
     SARVAM_TTS_MODEL: str = "bulbul:v3"
     SARVAM_TTS_SPEAKER: str = "kavya"
     SARVAM_TTS_SAMPLE_RATE: int = 24000

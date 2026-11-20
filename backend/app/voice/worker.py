@@ -11,7 +11,7 @@ import sys
 from livekit.agents import WorkerOptions, cli
 
 from app.core.config import settings
-from app.voice.agent import prewarm_vad, voice_agent_entrypoint
+from app.voice.agent import prewarm_process, voice_agent_entrypoint
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("voice_worker")
@@ -28,7 +28,7 @@ def main():
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=voice_agent_entrypoint,
-            prewarm_fnc=prewarm_vad,
+            prewarm_fnc=prewarm_process,
             ws_url=settings.LIVEKIT_URL,
             api_key=settings.LIVEKIT_API_KEY,
             api_secret=settings.LIVEKIT_API_SECRET,

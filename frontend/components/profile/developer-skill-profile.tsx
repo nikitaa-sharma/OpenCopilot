@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { UserCheck, Plus, X, Sparkles, Check, RefreshCw } from "lucide-react";
+import { UserCheck, Plus, X, Save, Check, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -278,7 +278,7 @@ export function DeveloperSkillProfileComponent({ onProfileUpdated }: DeveloperSk
                     </>
                   ) : (
                     <>
-                      <Sparkles className="h-3.5 w-3.5" />
+                      <Save className="h-3.5 w-3.5" />
                       <span>Save Profile</span>
                     </>
                   )}

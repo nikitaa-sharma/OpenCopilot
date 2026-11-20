@@ -7,7 +7,7 @@ import {
   FolderTree,
   FileCode,
   ArrowRight,
-  Sparkles,
+  Bot,
   Cpu,
   Database,
   Terminal,
@@ -277,7 +277,7 @@ export function StructureExplainer({
               </Badge>
             ) : (
               <Badge variant="warning" className="gap-1.5 text-xs font-medium">
-                <Sparkles className="h-3 w-3" />
+                <Cpu className="h-3 w-3" />
                 <span>AI Demo Preview</span>
               </Badge>
             )}
@@ -390,7 +390,7 @@ export function StructureExplainer({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="p-4 rounded-xl bg-secondary/30 border border-border/60 space-y-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5 text-primary" />
+                        <Compass className="h-3.5 w-3.5 text-primary" />
                         <span>What The Project Does</span>
                       </span>
                       <p className="text-sm text-foreground/95 leading-relaxed">
@@ -798,7 +798,7 @@ export function StructureExplainer({
                     {/* AI / ML */}
                     <div className="p-4 rounded-xl bg-secondary/30 border border-border/60 space-y-2">
                       <span className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5 text-pink-500" />
+                        <Bot className="h-3.5 w-3.5 text-pink-500" />
                         <span>AI / ML ({data.technology_map.ai_ml?.length || 0})</span>
                       </span>
                       <div className="flex flex-wrap gap-1.5">
